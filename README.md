@@ -28,11 +28,10 @@ is, and parallel sessions all show up at once.
   ├──────────────────────────────────────────────┤
   │ SETTINGS                                     │
   │ Sound on a new request                  [on] │
-  │ Take keyboard focus                     [on] │
-  │ Respect each repo's own permissions     [on] │
+  │ Open the panel automatically           [off] │
   │ Hide the menu bar icon when idle       [off] │
   ├──────────────────────────────────────────────┤
-  │ Rules…  Edit JSON…                     Quit  │
+  │                                        Quit  │
   └──────────────────────────────────────────────┘
 ```
 
@@ -101,7 +100,7 @@ or times out, you get the normal terminal prompt — it cannot fail open.
 | Type a message, then `↩` | Deny, and hand the text to Claude as the reason |
 | `⌘↑` / `⌘↓` | Move between stacked requests |
 | Click the icon | Open the panel |
-| Right-click the icon | Pause, open rules, open config, quit |
+| Right-click the icon | Pause, open rules, open config JSON, quit |
 
 A message typed into the field reaches Claude as `permissionDecisionReason`, so
 "use pnpm, not npm" lands the same way it would from the terminal prompt.
@@ -157,11 +156,16 @@ Deny is checked before allow. Supported forms:
 
 ### Your repo's existing permissions
 
-With **Respect each repo's own permissions** on (the default), the hook also
-reads `permissions.allow` / `deny` / `ask` from `~/.claude/settings.json`,
-`<project>/.claude/settings.json` and `settings.local.json`. Anything you already
-approved there is not asked about a second time. `ask` entries outrank every
-allow rule and always reach the panel.
+The hook also reads `permissions.allow` / `deny` / `ask` from
+`~/.claude/settings.json`, `<project>/.claude/settings.json` and
+`settings.local.json`. Anything you already approved there is not asked about a
+second time, and `ask` entries outrank every allow rule and always reach the
+panel.
+
+There is no switch for this. A hook answering `allow` bypasses Claude Code's own
+permission check, so a repo's `deny` list has to be enforced before the panel is
+ever consulted — otherwise one click here would override something the repo
+explicitly forbids.
 
 ### What each project asks about
 
@@ -185,8 +189,8 @@ file-only.
   "port": 4471,
   "sound": true,
   "focusOnRequest": true,
+  "autoOpenOnRequest": false,
   "hideWhenIdle": false,
-  "respectClaudeCodePermissions": true,
   "intercept": ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "mcp__*"],
   "ignore": [],
   "timeout": 280
@@ -198,7 +202,11 @@ file-only.
 - **ignore** — checked first, wins over `intercept`.
 - **timeout** — seconds the hook waits for you. Keep it under the hook timeout in
   `~/.claude/settings.json` (installed as 300).
-- **focusOnRequest** — `false` shows the panel without stealing keyboard focus.
+- **autoOpenOnRequest** — `true` pops the panel open by itself. Off by default:
+  a new request adds a count to the menu bar icon and pulses it, and you open
+  the panel when you are ready.
+- **focusOnRequest** — whether an automatic open also takes the keyboard. Only
+  consulted when `autoOpenOnRequest` is on; opening it yourself always focuses.
 - **hideWhenIdle** — `true` keeps the icon out of the menu bar until there is
   something to ask. `open -a ClaudeNext` brings the panel back.
 

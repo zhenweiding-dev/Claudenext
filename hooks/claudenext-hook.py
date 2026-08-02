@@ -43,9 +43,6 @@ DEFAULT_CONFIG = {
     "ignore": [],
     # Seconds to wait for a human. Keep below the hook timeout in settings.json.
     "timeout": 280,
-    # Honour permissions.allow / deny / ask already set in .claude/settings.json,
-    # so a call you approved there is not asked about a second time.
-    "respectClaudeCodePermissions": True,
 }
 
 # Commands whose second word is meaningful enough to keep in a rule.
@@ -383,9 +380,10 @@ def main():
         passthrough()
 
     allow_rules, deny_rules = load_rules(cwd)
-    cc_allow, cc_deny, cc_ask = ([], [], [])
-    if cfg.get("respectClaudeCodePermissions", True):
-        cc_allow, cc_deny, cc_ask = claude_code_permissions(cwd)
+    # Always: a decision of "allow" bypasses Claude Code's own permission
+    # check, so ignoring the repo's deny list would let one click here
+    # override something the repo explicitly forbids.
+    cc_allow, cc_deny, cc_ask = claude_code_permissions(cwd)
 
     # Deny wins over everything, from either source.
     hit = first_match(deny_rules, tool_name, tool_input, cwd)

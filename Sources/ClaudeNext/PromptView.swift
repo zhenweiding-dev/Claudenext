@@ -563,12 +563,8 @@ struct GlobalSettings: View {
             switchRow("Sound on a new request", model.config.sound) { on in
                 model.editConfig { $0.sound = on }
             }
-            switchRow("Take keyboard focus", model.config.focusOnRequest) { on in
-                model.editConfig { $0.focusOnRequest = on }
-            }
-            switchRow("Respect each repo's own permissions",
-                      model.config.respectClaudeCodePermissions) { on in
-                model.editConfig { $0.respectClaudeCodePermissions = on }
+            switchRow("Open the panel automatically", model.config.autoOpenOnRequest) { on in
+                model.editConfig { $0.autoOpenOnRequest = on }
             }
             switchRow("Hide the menu bar icon when idle", model.config.hideWhenIdle) { on in
                 model.editConfig { $0.hideWhenIdle = on }
@@ -603,11 +599,9 @@ struct ActionRow: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Button("Rules…") { model.openRulesFile() }
-                .buttonStyle(ActionButtonStyle(variant: .quiet, palette: palette))
-            Button("Edit JSON…") { model.openConfigFile() }
-                .buttonStyle(ActionButtonStyle(variant: .quiet, palette: palette))
             Spacer()
+            // Editing rules and config by hand lives in the status item's
+            // right-click menu, not underfoot in the panel.
             Button("Quit") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(ActionButtonStyle(variant: .quiet, palette: palette))
                 .keyboardShortcut("q", modifiers: .command)

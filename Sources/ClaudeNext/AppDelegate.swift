@@ -216,6 +216,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         if focus { NSApp.activate() }
         panel.makeKeyAndOrderFront(nil)
+        clearInitialFocus()
+    }
+
+    /// AppKit hands the window's first responder to whichever control it finds
+    /// first, which put a focus ring on Pause every time the panel opened.
+    private func clearInitialFocus() {
+        panel.makeFirstResponder(nil)
     }
 
     /// Fallback for the rare case where the status button has no window yet.
@@ -232,6 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        display: true, animate: false)
         if focus { NSApp.activate() }
         panel.makeKeyAndOrderFront(nil)
+        clearInitialFocus()
     }
 
     private func hidePanel() {
@@ -272,6 +280,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.onNewRequest = { [weak self] in
             guard let self else { return }
             if model.config.sound { NSSound(named: "Ping")?.play() }
+            // The count and the pulse are the notification; stealing the screen
+            // is opt-in.
+            guard model.config.autoOpenOnRequest else { return }
             if !panel.isVisible { openedForRequest = true }
             presentPanel(focus: model.config.focusOnRequest)
         }

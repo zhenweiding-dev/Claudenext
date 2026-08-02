@@ -8,7 +8,11 @@ import Foundation
 struct AppConfig: Equatable {
     var port: UInt16 = 4471
     var sound: Bool = true
-    /// Bring the popover to the keyboard when a request arrives.
+    /// Pop the panel open by itself when a request arrives. Off by default —
+    /// the count and the pulse are the notification.
+    var autoOpenOnRequest: Bool = false
+    /// Whether an automatic open also takes the keyboard. Only consulted when
+    /// `autoOpenOnRequest` is on; opening it yourself always takes focus.
     var focusOnRequest: Bool = true
     /// Tool names (fnmatch patterns) routed through the panel.
     var intercept: [String] = ["Bash", "Write", "Edit", "MultiEdit",
@@ -18,8 +22,6 @@ struct AppConfig: Equatable {
     var timeout: Double = 280
     /// Optionally keep out of the menu bar until there is something to ask.
     var hideWhenIdle: Bool = false
-    /// Honour permissions.allow / deny / ask already set in .claude/settings.json.
-    var respectClaudeCodePermissions: Bool = true
 
     /// Every tool the settings pane offers, in the order it shows them.
     static let knownTools = ["Bash", "Edit", "MultiEdit", "Write", "NotebookEdit",
@@ -50,13 +52,11 @@ struct AppConfig: Equatable {
         if let v = object["port"] as? NSNumber { config.port = v.uint16Value }
         if let v = object["sound"] as? Bool { config.sound = v }
         if let v = object["focusOnRequest"] as? Bool { config.focusOnRequest = v }
+        if let v = object["autoOpenOnRequest"] as? Bool { config.autoOpenOnRequest = v }
         if let v = object["intercept"] as? [String] { config.intercept = v }
         if let v = object["ignore"] as? [String] { config.ignore = v }
         if let v = object["timeout"] as? NSNumber { config.timeout = v.doubleValue }
         if let v = object["hideWhenIdle"] as? Bool { config.hideWhenIdle = v }
-        if let v = object["respectClaudeCodePermissions"] as? Bool {
-            config.respectClaudeCodePermissions = v
-        }
         return config
     }
 
@@ -70,11 +70,11 @@ struct AppConfig: Equatable {
         object["port"] = Int(port)
         object["sound"] = sound
         object["focusOnRequest"] = focusOnRequest
+        object["autoOpenOnRequest"] = autoOpenOnRequest
         object["intercept"] = intercept
         object["ignore"] = ignore
         object["timeout"] = timeout
         object["hideWhenIdle"] = hideWhenIdle
-        object["respectClaudeCodePermissions"] = respectClaudeCodePermissions
 
         guard let data = try? JSONSerialization.data(
             withJSONObject: object, options: [.prettyPrinted, .sortedKeys]

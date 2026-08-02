@@ -34,30 +34,29 @@ enum ConfigRoundtrip {
         check("defaults: intercepts Bash", defaults.intercepts("Bash"))
         check("defaults: does not intercept Read", !defaults.intercepts("Read"))
         check("defaults: icon stays visible", !defaults.hideWhenIdle)
-        check("defaults: repo permissions respected", defaults.respectClaudeCodePermissions)
+        check("defaults: does not open itself", !defaults.autoOpenOnRequest)
 
         // 2. Everything the app owns survives a save/load cycle.
         var edited = defaults
         edited.sound = false
         edited.focusOnRequest = false
+        edited.autoOpenOnRequest = true
         edited.port = 4999
         edited.intercept = ["Bash", "Read", "mcp__*"]
         edited.ignore = ["Bash(echo:*)"]
         edited.timeout = 120
         edited.hideWhenIdle = true
-        edited.respectClaudeCodePermissions = false
         edited.save()
 
         let reloaded = AppConfig.load()
         check("roundtrip: sound", reloaded.sound == false)
         check("roundtrip: focusOnRequest", reloaded.focusOnRequest == false)
+        check("roundtrip: autoOpenOnRequest", reloaded.autoOpenOnRequest)
         check("roundtrip: port", reloaded.port == 4999)
         check("roundtrip: intercept", reloaded.intercept == ["Bash", "Read", "mcp__*"])
         check("roundtrip: ignore", reloaded.ignore == ["Bash(echo:*)"])
         check("roundtrip: timeout", reloaded.timeout == 120)
         check("roundtrip: hideWhenIdle", reloaded.hideWhenIdle)
-        check("roundtrip: respectClaudeCodePermissions",
-              reloaded.respectClaudeCodePermissions == false)
         check("roundtrip: whole value is equal", reloaded == edited)
 
         // 3. Keys the app knows nothing about must survive a write from the UI.

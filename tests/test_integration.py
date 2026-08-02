@@ -165,14 +165,15 @@ check("settings.json ask outranks allow", len(seen) == before + 1, len(seen))
 check("ask still ends in a real answer", out and out["permissionDecision"] == "allow", out)
 os.remove(rules_path)
 
-# Opting out puts us back to asking about everything.
-with open(os.path.join(HOME, ".claudenext", "config.json"), "w") as fh:
-    json.dump({"port": PORT, "timeout": 10, "respectClaudeCodePermissions": False}, fh)
+# A repo deny must be unreachable from the panel. "allow" from a hook bypasses
+# Claude Code's own permission check, so the deny has to be enforced before the
+# panel is ever consulted — there is deliberately no way to opt out of this.
 before = len(seen)
 reply = {"decision": "allow"}
-rc, out, err = run("Bash", {"command": "git status --short"})
-check("respectClaudeCodePermissions=false ignores settings.json",
-      len(seen) == before + 1, len(seen))
+rc, out, err = run("Bash", {"command": "rm -rf build"})
+check("a repo deny is never offered to the panel", len(seen) == before, len(seen))
+check("a repo deny cannot be clicked away",
+      out and out["permissionDecision"] == "deny", out)
 os.remove(cc_settings)
 write_config(PORT)
 
