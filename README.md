@@ -3,25 +3,36 @@
 A macOS menu bar app that answers Claude Code's permission prompts.
 
 When Claude Code wants to run a command, edit a file, or call an MCP tool, the
-request drops out of the menu bar in a Claude-styled panel with **Deny**,
-**Always allow** and **Allow**, plus a field for telling Claude what to do
-instead. Your terminal stays where it is.
+request drops out of the menu bar with **Deny**, **Always allow** and **Allow**,
+plus a field for telling Claude what to do instead. Your terminal stays where it
+is, and parallel sessions all show up at once.
 
 ```
-       ✳ ← menu bar
+       ✳ 2  ← menu bar: plain spark, a count, a pulse that fades out
   ┌──────────────────────────────────────────────┐
-  │ ● Claude wants to run a command       [Bash] │
-  │   ~/code/my-project                          │
+  │ ● 2 requests waiting        ⌃ ⌄     [Pause]  │
+  │   127.0.0.1:4471 · 5 decisions               │
   ├──────────────────────────────────────────────┤
   │ ┌──────────────────────────────────────────┐ │
-  │ │ npm run build --watch                    │ │
+  │ │ Claude wants to run a command     [Bash] │ │
+  │ │ 📁 api-server                            │ │
+  │ │ ┌──────────────────────────────────────┐ │ │
+  │ │ │ npm run migrate:latest               │ │ │
+  │ │ └──────────────────────────────────────┘ │ │
+  │ │ ┌ Tell Claude what to do differently… ┐  │ │
+  │ │ [Deny esc]   [Always allow ⌘A][Allow ↩]  │ │
+  │ │ Always allow adds Bash(npm run:*)        │ │
+  │ │ ▸ Ask about in api-server   7 tools      │ │
   │ └──────────────────────────────────────────┘ │
-  │ Build the project and keep rebuilding        │
+  │  … more cards …                              │
   ├──────────────────────────────────────────────┤
-  │ ┌ Tell Claude what to do differently…      ┐ │
-  │ └──────────────────────────────────────────┘ │
-  │ [Deny esc]        [Always allow ⌘A] [Allow ↩]│
-  │ Always allow adds  Bash(npm run:*)           │
+  │ SETTINGS                                     │
+  │ Sound on a new request                  [on] │
+  │ Take keyboard focus                     [on] │
+  │ Respect each repo's own permissions     [on] │
+  │ Hide the menu bar icon when idle       [off] │
+  ├──────────────────────────────────────────────┤
+  │ Rules…  Edit JSON…                     Quit  │
   └──────────────────────────────────────────────┘
 ```
 
@@ -39,53 +50,41 @@ That builds the app into `~/Applications/ClaudeNext.app`, copies the hook to
 `~/.claudenext/`, registers it as a `PreToolUse` hook in
 `~/.claude/settings.json`, installs a login agent, and starts it.
 
-Restart any running Claude Code session afterwards so it reloads the hook, then
-ask Claude to run something.
+Restart any running Claude Code session afterwards so it reloads the hook.
 
 `./uninstall.sh` reverses all of it and leaves your rules alone.
 
 ## Running it
 
-Nothing to run. The login agent
-(`~/Library/LaunchAgents/com.claudenext.menubar.plist`) starts ClaudeNext when
-you log in and restarts it if it ever crashes — but not if you quit it
-yourself, so quitting from the menu stays quitting.
-
-Claude Code needs no flags and no per-project setup: the hook is registered
+Nothing to run. The login agent starts ClaudeNext when you log in and restarts
+it if it crashes — but not if you quit it yourself. The hook is registered
 globally, so every session in every directory goes through it.
 
 ```bash
 launchctl kickstart -k gui/$UID/com.claudenext.menubar   # restart it
 curl -s 127.0.0.1:4471/health                            # is it up?
+open -a ClaudeNext                                       # reopen the panel
 ```
 
 If it is not running, nothing breaks — the hook falls through and Claude Code
 prompts in the terminal as usual.
 
-Editing `~/.claudenext/config.json` needs a restart, since config is read at
-launch. Editing rules does not; the hook reads those on every call.
-
-### Updating
-
-```bash
-git pull && ./install.sh
-```
-
 Re-running `install.sh` is safe: it replaces the running instance rather than
-stacking a second menu bar icon, and the settings merge is idempotent — it
-rewrites its own hook entry and leaves every other key and hook in
-`~/.claude/settings.json` untouched.
+stacking a second menu bar icon, and the settings merge rewrites only its own
+hook entry.
 
-## How it works
+## How a tool call is decided
 
 Claude Code fires a `PreToolUse` hook before every tool call.
-`claudenext-hook.py` reads the call and resolves it in this order:
+`claudenext-hook.py` resolves it in this order:
 
-1. **Not an intercepted tool** → prints nothing, Claude Code prompts as usual.
-2. **Matches a saved rule** → decided instantly, no UI.
-3. **Otherwise** → `POST /ask` to the app on `127.0.0.1:4471`. The HTTP request
-   stays open, and that is what blocks Claude Code until you answer.
-4. **App not running, or you never answered** → prints nothing, Claude Code
+1. **Not in the ask-about list** → prints nothing, Claude Code prompts as usual.
+2. **Any deny rule matches** → denied, no UI. Yours or the repo's.
+3. **A `permissions.ask` entry matches** → skips step 4, always shows the panel.
+4. **Any allow rule matches** → allowed, no UI. Yours or the repo's.
+5. **Otherwise** → `POST /ask` to the app on `127.0.0.1:4471`. The request stays
+   open, and that is what blocks Claude Code until you answer.
+6. **App not running, or you never answered** → prints nothing, Claude Code
    prompts as usual.
 
 The fallback is always silence, never approval. If ClaudeNext is closed, wedged,
@@ -96,50 +95,54 @@ or times out, you get the normal terminal prompt — it cannot fail open.
 | Action | |
 |---|---|
 | `↩` | Allow once |
-| `⌘A` | Always allow — saves the suggested rule |
+| `⌘A` | Always allow — saves the rule to this project |
 | `esc` | Deny |
-| `⌥` + Deny | Always deny — saves the rule to the deny list |
+| `⌥` + Deny | Always deny — saves a deny rule to this project |
 | Type a message, then `↩` | Deny, and hand the text to Claude as the reason |
 | `⌘↑` / `⌘↓` | Move between stacked requests |
-| Click the icon | Open the panel: pending requests, or recent activity |
+| Click the icon | Open the panel |
 | Right-click the icon | Pause, open rules, open config, quit |
 
-A message typed into the field is passed to Claude as
-`permissionDecisionReason`, so "use pnpm, not npm" reaches the model the same
-way it would if you had typed it into the terminal prompt.
+A message typed into the field reaches Claude as `permissionDecisionReason`, so
+"use pnpm, not npm" lands the same way it would from the terminal prompt.
 
-Clicking away parks a request rather than answering it — the menu bar icon turns
-orange and shows a count.
+Clicking away parks a request rather than answering it.
 
 ## Several sessions at once
 
-Every Claude Code session gets its own blocking connection, so parallel
-sessions work. When more than one request is waiting they are **all shown at
-once**, stacked as scrollable cards with their own buttons and message field —
-answer them in whatever order you like, not oldest first.
+Every Claude Code session gets its own blocking connection, so parallel sessions
+work. When more than one request is waiting they are **all shown at once**,
+stacked as scrollable cards with their own buttons and message field — answer
+them in any order, not oldest first.
 
-One card is focused at a time and owns the keyboard; `⌘↑` / `⌘↓` (or the
-chevrons in the header, or a click) move the focus, and the list scrolls to
-follow. Unfocused cards hide their key hints so it stays obvious what `↩` will
-hit. The panel grows to fit two cards and scrolls beyond that, capped so it
-never runs off the bottom of the screen.
-
-Remembered rules are per project, so two sessions in different projects write
-to their own `.claude/claudenext.json` and never collide.
+One card is focused at a time and owns the keyboard; `⌘↑` / `⌘↓` (or a click)
+move the focus and the list scrolls to follow. Unfocused cards hide their key
+hints so it stays obvious what `↩` will hit. Each card names its project, so two
+sessions editing the same filename in different repos are told apart.
 
 ## Rules
 
-"Always allow" appends to `<project>/.claude/claudenext.json`:
+Every remembered rule is written to the project it was approved in,
+`<project>/.claude/claudenext.json`:
 
 ```json
 {
   "allow": ["Bash(npm run:*)", "Edit(src/**)"],
-  "deny": ["Bash(git push:*)"]
+  "deny": ["Bash(git push:*)"],
+  "intercept": ["Bash", "Edit", "Read"]
 }
 ```
 
-`~/.claudenext/rules.json` holds the same shape and applies everywhere. Deny
-rules are checked first and win over allow rules. Supported forms:
+There is deliberately no "remember everywhere" option. A suggested rule like
+`Edit(src/**)` is resolved against the current working directory, so storing it
+globally would silently authorise `src/**` in *every* repo Claude later touches.
+
+`~/.claudenext/rules.json` is still read for rules you write by hand, but only
+ones that mean the same thing outside a project — command prefixes, domains, and
+absolute or `~`-rooted paths. Relative path rules there are ignored for the same
+reason.
+
+Deny is checked before allow. Supported forms:
 
 | Rule | Matches |
 |---|---|
@@ -152,44 +155,72 @@ rules are checked first and win over allow rules. Supported forms:
 | `WebFetch(domain:docs.python.org)` | that host |
 | `mcp__github__*` | every tool on that MCP server |
 
-These are ClaudeNext's own rules, deliberately separate from
-`.claude/settings.json`. A `PreToolUse` hook runs *before* Claude Code checks
-its own permission list, so rules living there would not stop this panel from
-appearing.
+### Your repo's existing permissions
+
+With **Respect each repo's own permissions** on (the default), the hook also
+reads `permissions.allow` / `deny` / `ask` from `~/.claude/settings.json`,
+`<project>/.claude/settings.json` and `settings.local.json`. Anything you already
+approved there is not asked about a second time. `ask` entries outrank every
+allow rule and always reach the panel.
+
+### What each project asks about
+
+The **Ask about in ‹project›** row at the bottom of a card is that project's own
+intercept list, collapsed by default. It shows the project's real state — the
+summary reads `· global` while the project is still following the global default
+— and changing anything writes the whole effective list into that project's
+`claudenext.json`.
+
+Both the app and the hook write that file, so writes take an exclusive `flock`
+on `<project>/.claude/.claudenext.lock` and land via atomic rename. Neither side
+can lose the other's change.
 
 ## Config
 
-`~/.claudenext/config.json` — the app reads `port`, `sound`, `focusOnRequest`
-and `rememberScope`; the hook reads the rest.
+`~/.claudenext/config.json`. The panel edits the common ones; the rest are
+file-only.
 
 ```json
 {
   "port": 4471,
   "sound": true,
   "focusOnRequest": true,
-  "rememberScope": "project",
+  "hideWhenIdle": false,
+  "respectClaudeCodePermissions": true,
   "intercept": ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "mcp__*"],
   "ignore": [],
   "timeout": 280
 }
 ```
 
-- **intercept** — tool names (fnmatch patterns) routed through the panel.
-  Anything else keeps Claude Code's normal prompt. Add `"Read"` if you want
-  reads to come through too.
+- **intercept** — the global default for which tools reach the panel. A project
+  overrides it in its own rules file.
 - **ignore** — checked first, wins over `intercept`.
-- **timeout** — seconds the hook waits for you. Keep it under the hook timeout
-  in `~/.claude/settings.json` (installed as 300).
-- **rememberScope** — `"project"` or `"global"`, where "always allow" writes.
+- **timeout** — seconds the hook waits for you. Keep it under the hook timeout in
+  `~/.claude/settings.json` (installed as 300).
 - **focusOnRequest** — `false` shows the panel without stealing keyboard focus.
+- **hideWhenIdle** — `true` keeps the icon out of the menu bar until there is
+  something to ask. `open -a ClaudeNext` brings the panel back.
 
-Restart the app after editing; config is read at launch.
+Everything except `port` applies immediately: the app holds its own copy and the
+hook re-reads the file on every call. Writes are read-modify-write, so keys you
+add by hand survive.
+
+`CLAUDENEXT_HOME` relocates the whole support directory; both ends honour it.
+
+## Menu bar icon
+
+One glyph in both states — a plain template spark that takes the menu bar's own
+colour, matching Claude's own tray icon. A waiting request shows a count beside
+it and pulses the button, and that pulse decays to nothing over ~24 seconds so an
+unanswered request stops being a flashing distraction. A newly arrived request
+restarts the fade; answering one does not.
 
 ## Endpoints
 
 ```bash
 curl -s 127.0.0.1:4471/health   # {"ok":true,"app":"ClaudeNext"}
-curl -s 127.0.0.1:4471/status   # {"pending":1,"current":"Bash: npm run build","paused":false,...}
+curl -s 127.0.0.1:4471/status   # {"pending":1,"current":"Bash: npm run build",...}
 ```
 
 Bound to loopback only. `/status` is handy for a statusline.
@@ -197,27 +228,31 @@ Bound to loopback only. `/status` is handy for a statusline.
 ## Development
 
 ```bash
-./run-tests.sh   # swift build + both hook suites
-./build.sh       # dist/ClaudeNext.app, ad-hoc signed
+./run-tests.sh   # swift build + config round-trip + rules + hook integration + concurrency
+./build.sh       # dist/ClaudeNext.app, ad-hoc signed, icon generated from source
 ```
 
 ```
 Sources/ClaudeNext/
   main.swift           entry point, .accessory activation policy
-  AppDelegate.swift    status item, floating panel, server wiring
+  AppDelegate.swift    status item, pulse, floating panel, server wiring
   PromptServer.swift   loopback HTTP/1.1, long-polls /ask
-  PromptModel.swift    request queue and recent decisions
+  PromptModel.swift    request queue, recent decisions, config, per-project state
   Models.swift         hook payload, decision, pending request
-  Presentation.swift   per-tool copy, diffs, path shortening
+  Presentation.swift   per-tool copy, diffs, project and path naming
   PromptView.swift     the panel
-  Theme.swift          Claude palette and button styles
+  ProjectRules.swift   locked read-modify-write of a project's rules file
+  AppConfig.swift      ~/.claudenext/config.json
+  Theme.swift          palette taken from the Claude app's own tokens
   StatusIcon.swift     the menu bar spark
+Tools/make-icon.swift  draws AppIcon.iconset at build time
 hooks/claudenext-hook.py   rule matching, rule saving, hook I/O
-tests/                     rule unit tests, hook integration tests
+tests/                 config round-trip, rule unit tests, hook integration,
+                       cross-process concurrency
 ```
 
-`tests/test_integration.py` runs the real hook script against a stubbed app, so
-the offline and malformed-input paths are covered — those are the ones that must
+`tests/test_integration.py` runs the real hook against a stubbed app, so the
+offline and malformed-input paths are covered — those are the ones that must
 never turn into a silent allow.
 
 ## Notes

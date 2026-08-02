@@ -23,7 +23,10 @@ enum StatusIcon {
     private static let offsetX = 0.8 / 36.0
     private static let offsetY = 0.5 / 36.0
 
-    static func image(active: Bool) -> NSImage {
+    /// Always a plain template spark, so it takes the menu bar's own colour in
+    /// both appearances. A pending request is signalled by the count beside it
+    /// and by the button pulsing, not by recolouring the glyph.
+    static func image() -> NSImage {
         // The shipped template is a 24pt canvas; anything smaller renders the
         // glyph visibly punier than the real menu bar icon sitting next to it.
         let side: CGFloat = 24
@@ -37,9 +40,8 @@ enum StatusIcon {
             let inner = outer * coreFraction
             let thickness = half * widthFraction
 
-            let ink = (active ? accentColor : NSColor.black).cgColor
-            context.setStrokeColor(ink)
-            context.setFillColor(ink)
+            context.setStrokeColor(NSColor.black.cgColor)
+            context.setFillColor(NSColor.black.cgColor)
             context.setLineWidth(thickness)
             context.setLineCap(.round)
 
@@ -57,7 +59,7 @@ enum StatusIcon {
                                            width: inner * 2, height: inner * 2))
             return true
         }
-        image.isTemplate = !active
+        image.isTemplate = true
         return image
     }
 

@@ -50,7 +50,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 
 def write_config(port, timeout=10):
     with open(os.path.join(HOME, ".claudenext", "config.json"), "w") as fh:
-        json.dump({"port": port, "timeout": timeout, "rememberScope": "project"}, fh)
+        json.dump({"port": port, "timeout": timeout}, fh)
 
 
 def run(tool, tool_input, event="PreToolUse", raw=None):
@@ -135,6 +135,71 @@ check("garbage prints nothing", out is None, out)
 # 9. A different hook event is none of our business.
 rc, out, err = run("Bash", {"command": "ls"}, event="PostToolUse")
 check("other events print nothing", out is None, out)
+
+# 10. Claude Code's own permissions are honoured, so nothing gets asked twice.
+os.remove(rules_path)
+write_config(PORT)
+cc_settings = os.path.join(PROJ, ".claude", "settings.json")
+json.dump({"permissions": {"allow": ["Bash(git status:*)"],
+                           "deny": ["Bash(rm:*)"],
+                           "ask": ["Bash(git push:*)"]}},
+          open(cc_settings, "w"))
+
+before = len(seen)
+reply = {"decision": "deny"}  # would flip the result if the app were consulted
+rc, out, err = run("Bash", {"command": "git status --short"})
+check("settings.json allow is honoured", out and out["permissionDecision"] == "allow", out)
+check("settings.json allow skips the panel", len(seen) == before, len(seen))
+
+rc, out, err = run("Bash", {"command": "rm -rf build"})
+check("settings.json deny is honoured", out and out["permissionDecision"] == "deny", out)
+check("deny reason names the source",
+      out and "Claude Code" in out["permissionDecisionReason"], out)
+
+# "ask" must beat an allow rule from either source and reach the panel.
+json.dump({"allow": ["Bash(git push:*)"], "deny": []}, open(rules_path, "w"))
+before = len(seen)
+reply = {"decision": "allow"}
+rc, out, err = run("Bash", {"command": "git push origin main"})
+check("settings.json ask outranks allow", len(seen) == before + 1, len(seen))
+check("ask still ends in a real answer", out and out["permissionDecision"] == "allow", out)
+os.remove(rules_path)
+
+# Opting out puts us back to asking about everything.
+with open(os.path.join(HOME, ".claudenext", "config.json"), "w") as fh:
+    json.dump({"port": PORT, "timeout": 10, "respectClaudeCodePermissions": False}, fh)
+before = len(seen)
+reply = {"decision": "allow"}
+rc, out, err = run("Bash", {"command": "git status --short"})
+check("respectClaudeCodePermissions=false ignores settings.json",
+      len(seen) == before + 1, len(seen))
+os.remove(cc_settings)
+write_config(PORT)
+
+# 11. A relative path rule in the global file must not leak into other repos.
+os.makedirs(os.path.join(HOME, ".claudenext"), exist_ok=True)
+json.dump({"allow": ["Edit(src/**)", "Bash(git status:*)"], "deny": []},
+          open(os.path.join(HOME, ".claudenext", "rules.json"), "w"))
+write_config(PORT)
+before = len(seen)
+reply = {"decision": "allow"}
+rc, out, err = run("Edit", {"file_path": os.path.join(PROJ, "src", "x.ts"),
+                            "old_string": "a", "new_string": "b"})
+check("global relative path rule is ignored", len(seen) == before + 1, len(seen))
+before = len(seen)
+rc, out, err = run("Bash", {"command": "git status --short"})
+check("global command rule still applies", len(seen) == before, len(seen))
+check("and it allows", out and out["permissionDecision"] == "allow", out)
+os.remove(os.path.join(HOME, ".claudenext", "rules.json"))
+
+# 12. A project can override which tools are intercepted at all.
+json.dump({"allow": [], "deny": [], "intercept": ["Read"]}, open(rules_path, "w"))
+before = len(seen)
+rc, out, err = run("Bash", {"command": "echo hi"})
+check("project override drops Bash", out is None and len(seen) == before, out)
+rc, out, err = run("Read", {"file_path": os.path.join(PROJ, "src", "a.ts")})
+check("project override adds Read", len(seen) == before + 1, len(seen))
+os.remove(rules_path)
 
 server.shutdown()
 shutil.rmtree(workdir, ignore_errors=True)

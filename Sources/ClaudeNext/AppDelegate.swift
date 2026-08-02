@@ -34,6 +34,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var panel: PromptPanel!
     private var hostingView: AutoSizingHostingView<RootView>!
     private var flagsMonitor: Any?
+    private var blinkTimer: Timer?
+    private var blinkStarted: Date?
+    private var lastPendingCount = 0
+    /// The pulse fades out over this long and then holds steady; the count
+    /// beside the glyph is what keeps signalling after that.
+    private let blinkDecay: TimeInterval = 24
     /// Top edge stays put while the panel grows and shrinks.
     private var anchorTop: CGFloat = 0
     /// True when the panel opened itself for a request rather than being clicked open.
@@ -58,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             request.answer(PromptDecision(decision: .pass))
         }
         server.stop()
+        stopBlinking()
         if let flagsMonitor { NSEvent.removeMonitor(flagsMonitor) }
     }
 
@@ -66,12 +73,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func buildStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem.button else { return }
-        button.image = StatusIcon.image(active: false)
+        button.image = StatusIcon.image()
         button.imagePosition = .imageLeading
         button.target = self
         button.action = #selector(statusItemClicked)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         button.toolTip = "ClaudeNext"
+        updateIconVisibility()
+    }
+
+    /// Claude ships its own menu bar spark that cannot be turned off, so this
+    /// one stays out of the way unless it has something to ask — or the panel
+    /// is open, which needs the button around as an anchor.
+    private func updateIconVisibility() {
+        guard statusItem != nil else { return }
+        statusItem.isVisible = !model.pending.isEmpty
+            || !model.config.hideWhenIdle
+            || panel?.isVisible == true
     }
 
     @objc private func statusItemClicked() {
@@ -109,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         rules.target = self
         menu.addItem(rules)
 
-        let config = NSMenuItem(title: "Open config…", action: #selector(openConfig), keyEquivalent: "")
+        let config = NSMenuItem(title: "Open config JSON…", action: #selector(openConfig), keyEquivalent: "")
         config.target = self
         menu.addItem(config)
 
@@ -172,7 +190,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func presentPanel(focus: Bool) {
-        guard let button = statusItem.button, let buttonWindow = button.window else { return }
+        statusItem.isVisible = true
+        guard let button = statusItem.button, let buttonWindow = button.window else {
+            presentAtScreenCorner(focus: focus)
+            return
+        }
 
         let buttonRect = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
         let screen = buttonWindow.screen ?? NSScreen.main
@@ -196,8 +218,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
     }
 
+    /// Fallback for the rare case where the status button has no window yet.
+    private func presentAtScreenCorner(focus: Bool) {
+        guard let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return }
+        var size = panel.frame.size
+        size.height = max(size.height, hostingView.fittingSize.height)
+        anchorTop = visible.maxY - 8
+        model.maxPanelHeight = min(720, availableHeight())
+        size.height = min(size.height, availableHeight())
+        panel.setFrame(NSRect(x: visible.maxX - size.width - 12,
+                              y: anchorTop - size.height,
+                              width: size.width, height: size.height),
+                       display: true, animate: false)
+        if focus { NSApp.activate() }
+        panel.makeKeyAndOrderFront(nil)
+    }
+
     private func hidePanel() {
         panel.orderOut(nil)
+        updateIconVisibility()
+    }
+
+    /// `open -a ClaudeNext` while it is already running reopens the panel —
+    /// the way back in when the icon is hidden.
+    func applicationShouldHandleReopen(_ sender: NSApplication,
+                                       hasVisibleWindows: Bool) -> Bool {
+        openedForRequest = false
+        presentPanel(focus: true)
+        return true
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -218,6 +266,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 hidePanel()
             }
         }
+        model.onConfigChange = { [weak self] in
+            self?.updateIconVisibility()
+        }
         model.onNewRequest = { [weak self] in
             guard let self else { return }
             if model.config.sound { NSSound(named: "Ping")?.play() }
@@ -229,19 +280,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func refreshStatusItem() {
         guard let button = statusItem.button else { return }
         let count = model.pending.count
-        button.image = StatusIcon.image(active: count > 0)
-        if count > 1 {
+        button.image = StatusIcon.image()
+        if count > 0 {
             button.attributedTitle = NSAttributedString(
                 string: " \(count)",
                 attributes: [
                     .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-                    .foregroundColor: StatusIcon.accentColor
+                    .foregroundColor: NSColor.labelColor
                 ]
             )
         } else {
             button.title = ""
         }
         button.toolTip = count == 0 ? "ClaudeNext — idle" : "ClaudeNext — \(count) waiting"
+        // A newly arrived request restarts the fade; answering one does not.
+        if count > lastPendingCount { startBlinking() }
+        if count == 0 { stopBlinking() }
+        lastPendingCount = count
+        updateIconVisibility()
+    }
+
+    /// The glyph matches Claude's own, so a waiting request announces itself by
+    /// pulsing the button rather than by changing colour. The pulse decays to
+    /// nothing so an unanswered request stops being a flashing distraction.
+    private func startBlinking() {
+        blinkTimer?.invalidate()
+        blinkStarted = Date()
+        var dimmed = false
+        let timer = Timer(timeInterval: 0.62, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let button = self.statusItem.button,
+                      let started = self.blinkStarted else { return }
+                let strength = max(0, 1 - Date().timeIntervalSince(started) / self.blinkDecay)
+                guard strength > 0.02 else {
+                    self.stopBlinking()
+                    return
+                }
+                dimmed.toggle()
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.38
+                    button.animator().alphaValue = dimmed ? 1 - 0.62 * strength : 1
+                }
+            }
+        }
+        // .common so it keeps pulsing while a menu is tracking.
+        RunLoop.main.add(timer, forMode: .common)
+        blinkTimer = timer
+    }
+
+    private func stopBlinking() {
+        blinkTimer?.invalidate()
+        blinkTimer = nil
+        blinkStarted = nil
+        statusItem?.button?.alphaValue = 1
     }
 
     private func startServer() {

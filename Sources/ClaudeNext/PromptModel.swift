@@ -17,20 +17,55 @@ final class PromptModel: ObservableObject {
         didSet { onQueueChange?() }
     }
 
-    var config = AppConfig()
+    @Published var config = AppConfig()
+    /// Mutate and persist in one step. Everything except `port` takes effect
+    /// immediately — the app reads its own copy, and the hook re-reads the file
+    /// on every call.
+    func editConfig(_ change: (inout AppConfig) -> Void) {
+        var updated = config
+        change(&updated)
+        guard updated != config else { return }
+        config = updated
+        updated.save()
+        onConfigChange?()
+    }
+
+    // MARK: What a project asks about
+
+    /// Per-project `intercept` lists, keyed by cwd. Absent means the project
+    /// has no override on disk and inherits the global list.
+    @Published private(set) var projectIntercept: [String: [String]] = [:]
+
+    func interceptList(for cwd: String) -> [String] {
+        projectIntercept[cwd] ?? config.intercept
+    }
+
+    func projectHasOverride(_ cwd: String) -> Bool {
+        projectIntercept[cwd] != nil
+    }
+
+    /// Writes the project's own file. The first toggle materialises the whole
+    /// effective list, so what you see is what lands on disk.
+    func toggleProjectIntercept(_ tool: String, cwd: String) {
+        var list = interceptList(for: cwd)
+        if let index = list.firstIndex(of: tool) {
+            list.remove(at: index)
+        } else {
+            list.append(tool)
+        }
+        projectIntercept[cwd] = list
+        ProjectRules.setIntercept(list, cwd: cwd)
+    }
 
     /// Wired up by the app delegate.
     var onQueueChange: (() -> Void)?
     var onNewRequest: (() -> Void)?
+    var onConfigChange: (() -> Void)?
 
     var statusLine: String {
         paused
             ? "Requests pass straight through to Claude Code."
             : "127.0.0.1:\(config.port) · \(recent.count) decision\(recent.count == 1 ? "" : "s") this session"
-    }
-
-    var rememberScopeLabel: String {
-        config.rememberScope == "global" ? "your global rules" : "this project's rules"
     }
 
     func enqueue(_ request: PendingRequest) {
@@ -41,6 +76,11 @@ final class PromptModel: ObservableObject {
         }
         pending.append(request)
         if focusedID == nil { focusedID = request.id }
+        let cwd = request.payload.cwd
+        if projectIntercept[cwd] == nil,
+           let override = ProjectRules.load(cwd: cwd).intercept {
+            projectIntercept[cwd] = override
+        }
         onQueueChange?()
         onNewRequest?()
     }
@@ -95,11 +135,8 @@ final class PromptModel: ObservableObject {
     // MARK: Files
 
     func openRulesFile() {
-        let scope = config.rememberScope
         let url: URL
-        if scope == "global" {
-            url = AppConfig.supportDirectory.appendingPathComponent("rules.json")
-        } else if let cwd = pending.first?.payload.cwd ?? lastCwd {
+        if let cwd = pending.first?.payload.cwd ?? lastCwd {
             url = URL(fileURLWithPath: cwd)
                 .appendingPathComponent(".claude")
                 .appendingPathComponent("claudenext.json")
@@ -110,15 +147,9 @@ final class PromptModel: ObservableObject {
     }
 
     func openConfigFile() {
-        reveal(AppConfig.configURL, seed: """
-        {
-          "port": \(config.port),
-          "sound": \(config.sound),
-          "focusOnRequest": \(config.focusOnRequest),
-          "rememberScope": "\(config.rememberScope)"
-        }
-
-        """)
+        // Make sure the file exists and is complete before handing it over.
+        config.save()
+        NSWorkspace.shared.open(AppConfig.configURL)
     }
 
     /// Which project the panel last spoke for, so "Rules…" opens the right file.

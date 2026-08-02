@@ -16,6 +16,7 @@ hands the decision back to Claude Code's built-in prompt.
 
 from __future__ import annotations
 
+import fcntl
 import fnmatch
 import json
 import os
@@ -26,7 +27,10 @@ import sys
 import urllib.error
 import urllib.request
 
-SUPPORT_DIR = os.path.expanduser("~/.claudenext")
+# CLAUDENEXT_HOME relocates the support directory; the app honours it too.
+SUPPORT_DIR = os.path.expanduser(
+    os.environ.get("CLAUDENEXT_HOME") or "~/.claudenext"
+)
 CONFIG_PATH = os.path.join(SUPPORT_DIR, "config.json")
 GLOBAL_RULES_PATH = os.path.join(SUPPORT_DIR, "rules.json")
 PROJECT_RULES_RELPATH = os.path.join(".claude", "claudenext.json")
@@ -39,8 +43,9 @@ DEFAULT_CONFIG = {
     "ignore": [],
     # Seconds to wait for a human. Keep below the hook timeout in settings.json.
     "timeout": 280,
-    # "project" writes remembered rules next to the code, "global" to ~/.claudenext.
-    "rememberScope": "project",
+    # Honour permissions.allow / deny / ask already set in .claude/settings.json,
+    # so a call you approved there is not asked about a second time.
+    "respectClaudeCodePermissions": True,
 }
 
 # Commands whose second word is meaningful enough to keep in a rule.
@@ -74,40 +79,108 @@ def load_config():
     return cfg
 
 
-def rules_path(cwd, scope):
-    if scope == "global":
-        return GLOBAL_RULES_PATH
+def rules_path(cwd):
+    """Remembered rules always land next to the code they were approved in.
+
+    A suggested rule like Edit(src/**) is resolved against the *current* cwd, so
+    storing one globally would silently authorise src/** in every other repo.
+    """
     return os.path.join(cwd, PROJECT_RULES_RELPATH)
 
 
+def is_globally_meaningful(rule):
+    """Whether a rule says the same thing outside the project it came from.
+
+    Command prefixes and domains do; a relative path does not, so those are
+    ignored if someone hand-writes them into the global file.
+    """
+    name, arg = split_rule(rule)
+    if not arg or arg == "*":
+        return True
+    if name == "Bash" or arg.startswith("domain:"):
+        return True
+    return arg.startswith("/") or arg.startswith("~")
+
+
 def load_rules(cwd):
-    """Project rules layered on top of global ones."""
+    """Project rules layered on top of hand-written global ones."""
     allow, deny = [], []
-    for path in (GLOBAL_RULES_PATH, os.path.join(cwd, PROJECT_RULES_RELPATH)):
-        data = load_json(path, {})
-        allow += [r for r in data.get("allow", []) if isinstance(r, str)]
-        deny += [r for r in data.get("deny", []) if isinstance(r, str)]
+    global_data = load_json(GLOBAL_RULES_PATH, {})
+    for key, bucket in (("allow", allow), ("deny", deny)):
+        bucket += [r for r in global_data.get(key, [])
+                   if isinstance(r, str) and is_globally_meaningful(r)]
+    project_data = load_json(os.path.join(cwd, PROJECT_RULES_RELPATH), {})
+    for key, bucket in (("allow", allow), ("deny", deny)):
+        bucket += [r for r in project_data.get(key, []) if isinstance(r, str)]
     return allow, deny
 
 
-def save_rule(cwd, scope, rule, bucket):
-    path = rules_path(cwd, scope)
-    data = load_json(path, {})
-    entries = data.get(bucket)
-    if not isinstance(entries, list):
-        entries = []
-    if rule in entries:
-        return path
-    entries.append(rule)
-    data[bucket] = entries
-    data.setdefault("allow", [])
-    data.setdefault("deny", [])
+def project_overrides(cwd):
+    """`intercept` / `ignore` set per project in .claude/claudenext.json."""
+    data = load_json(os.path.join(cwd, PROJECT_RULES_RELPATH), {})
+    out = {}
+    for key in ("intercept", "ignore"):
+        value = data.get(key)
+        if isinstance(value, list):
+            out[key] = [v for v in value if isinstance(v, str)]
+    return out
+
+
+def claude_code_permissions(cwd):
+    """Whatever Claude Code itself was already told about this project.
+
+    Its rule syntax is the same shape as ours, so honouring these means a call
+    the user already approved in settings.json does not get asked about twice.
+    Read in Claude Code's own precedence order, least specific first.
+    """
+    allow, deny, ask = [], [], []
+    paths = [
+        os.path.expanduser("~/.claude/settings.json"),
+        os.path.join(cwd, ".claude", "settings.json"),
+        os.path.join(cwd, ".claude", "settings.local.json"),
+    ]
+    for path in paths:
+        permissions = load_json(path, {}).get("permissions")
+        if not isinstance(permissions, dict):
+            continue
+        for key, bucket in (("allow", allow), ("deny", deny), ("ask", ask)):
+            value = permissions.get(key)
+            if isinstance(value, list):
+                bucket += [v for v in value if isinstance(v, str)]
+    return allow, deny, ask
+
+
+def save_rule(cwd, rule, bucket):
+    """Append a rule under an exclusive lock.
+
+    The menu bar app writes this same file when you change what a project asks
+    about, and two sessions can save at once, so the whole read-modify-write
+    happens inside flock() on a sibling lockfile. The app takes the same lock.
+    """
+    path = rules_path(cwd)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2)
-        fh.write("\n")
-    os.replace(tmp, path)
+    lock_path = os.path.join(os.path.dirname(path), ".claudenext.lock")
+
+    with open(lock_path, "a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            data = load_json(path, {})
+            entries = data.get(bucket)
+            if not isinstance(entries, list):
+                entries = []
+            if rule in entries:
+                return path
+            entries.append(rule)
+            data[bucket] = entries
+            data.setdefault("allow", [])
+            data.setdefault("deny", [])
+            tmp = f"{path}.{os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2, sort_keys=True)
+                fh.write("\n")
+            os.replace(tmp, path)
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     return path
 
 
@@ -300,6 +373,7 @@ def main():
     cwd = os.path.abspath(cwd)
 
     cfg = load_config()
+    cfg.update(project_overrides(cwd))
 
     if not tool_name:
         passthrough()
@@ -309,14 +383,26 @@ def main():
         passthrough()
 
     allow_rules, deny_rules = load_rules(cwd)
+    cc_allow, cc_deny, cc_ask = ([], [], [])
+    if cfg.get("respectClaudeCodePermissions", True):
+        cc_allow, cc_deny, cc_ask = claude_code_permissions(cwd)
 
+    # Deny wins over everything, from either source.
     hit = first_match(deny_rules, tool_name, tool_input, cwd)
     if hit:
         emit("deny", f"Blocked by ClaudeNext rule {hit}")
-
-    hit = first_match(allow_rules, tool_name, tool_input, cwd)
+    hit = first_match(cc_deny, tool_name, tool_input, cwd)
     if hit:
-        emit("allow", f"Allowed by ClaudeNext rule {hit}")
+        emit("deny", f"Blocked by your Claude Code deny rule {hit}")
+
+    # An explicit "ask" outranks any allow, so fall through to the panel.
+    if not first_match(cc_ask, tool_name, tool_input, cwd):
+        hit = first_match(allow_rules, tool_name, tool_input, cwd)
+        if hit:
+            emit("allow", f"Allowed by ClaudeNext rule {hit}")
+        hit = first_match(cc_allow, tool_name, tool_input, cwd)
+        if hit:
+            emit("allow", f"Already allowed by your Claude Code rule {hit}")
 
     rule = suggest_rule(tool_name, tool_input, cwd)
     payload = {
@@ -337,13 +423,12 @@ def main():
     decision = answer.get("decision", "pass")
     message = answer.get("message") or None
     remember = bool(answer.get("remember"))
-    scope = cfg.get("rememberScope", "project")
 
     if decision == "allow":
         reason = "Approved in ClaudeNext"
         if remember:
             try:
-                path = save_rule(cwd, scope, rule, "allow")
+                path = save_rule(cwd, rule, "allow")
                 reason = f"Approved in ClaudeNext; saved {rule} to {path}"
             except OSError as exc:
                 reason = f"Approved in ClaudeNext (could not save rule: {exc})"
@@ -355,7 +440,7 @@ def main():
         reason = message or "Denied in ClaudeNext"
         if remember:
             try:
-                save_rule(cwd, scope, rule, "deny")
+                save_rule(cwd, rule, "deny")
                 reason += f" (saved deny rule {rule})"
             except OSError:
                 pass

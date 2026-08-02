@@ -19,6 +19,17 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 
+echo "==> Drawing the app icon"
+ICONSET="$DIST/AppIcon.iconset"
+rm -rf "$ICONSET"
+if swift Tools/make-icon.swift "$ICONSET" >/dev/null &&
+   iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"; then
+  rm -rf "$ICONSET"
+  echo "    AppIcon.icns"
+else
+  echo "    (icon generation failed; shipping without one)"
+fi
+
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -28,6 +39,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<key>CFBundleDisplayName</key><string>ClaudeNext</string>
 	<key>CFBundleIdentifier</key><string>com.claudenext.menubar</string>
 	<key>CFBundleExecutable</key><string>ClaudeNext</string>
+	<key>CFBundleIconFile</key><string>AppIcon</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>1.0.0</string>
 	<key>CFBundleVersion</key><string>1</string>
