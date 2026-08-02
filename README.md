@@ -1,9 +1,9 @@
-# ClaudeGate
+# ClaudeNext
 
 A macOS menu bar app that answers Claude Code's permission prompts.
 
 When Claude Code wants to run a command, edit a file, or call an MCP tool, the
-request pops out of the menu bar in a Claude-styled panel with **Deny**,
+request drops out of the menu bar in a Claude-styled panel with **Deny**,
 **Always allow** and **Allow**, plus a field for telling Claude what to do
 instead. Your terminal stays where it is.
 
@@ -25,37 +25,39 @@ instead. Your terminal stays where it is.
   └──────────────────────────────────────────────┘
 ```
 
+Requires macOS 14+ and the Swift toolchain (`xcode-select --install`).
+
 ## Install
 
 ```bash
+git clone https://github.com/YOUR_USERNAME/ClaudeNext.git
+cd ClaudeNext
 ./install.sh
 ```
 
-That builds the app into `~/Applications/ClaudeGate.app`, copies the hook to
-`~/.claude-gate/`, registers it as a `PreToolUse` hook in
+That builds the app into `~/Applications/ClaudeNext.app`, copies the hook to
+`~/.claudenext/`, registers it as a `PreToolUse` hook in
 `~/.claude/settings.json`, and launches it.
 
 Restart any running Claude Code session afterwards so it reloads the hook, then
 ask Claude to run something.
-
-Requires macOS 14+ and the Swift toolchain (`xcode-select --install`).
 
 `./uninstall.sh` reverses all of it and leaves your rules alone.
 
 ## How it works
 
 Claude Code fires a `PreToolUse` hook before every tool call.
-`claude-gate-hook.py` reads the call and resolves it in this order:
+`claudenext-hook.py` reads the call and resolves it in this order:
 
 1. **Not an intercepted tool** → prints nothing, Claude Code prompts as usual.
 2. **Matches a saved rule** → decided instantly, no UI.
 3. **Otherwise** → `POST /ask` to the app on `127.0.0.1:4471`. The HTTP request
-   stays open, which is what blocks Claude Code until you answer.
+   stays open, and that is what blocks Claude Code until you answer.
 4. **App not running, or you never answered** → prints nothing, Claude Code
    prompts as usual.
 
-The fallback is always silence, never approval. If ClaudeGate is closed, wedged,
-or times out, you get the normal terminal prompt — the gate can't fail open.
+The fallback is always silence, never approval. If ClaudeNext is closed, wedged,
+or times out, you get the normal terminal prompt — it cannot fail open.
 
 ## Controls
 
@@ -78,7 +80,7 @@ orange and shows a count. Requests queue up and are answered oldest first.
 
 ## Rules
 
-"Always allow" appends to `<project>/.claude/claude-gate.json`:
+"Always allow" appends to `<project>/.claude/claudenext.json`:
 
 ```json
 {
@@ -87,7 +89,7 @@ orange and shows a count. Requests queue up and are answered oldest first.
 }
 ```
 
-`~/.claude-gate/rules.json` holds the same shape and applies everywhere. Deny
+`~/.claudenext/rules.json` holds the same shape and applies everywhere. Deny
 rules are checked first and win over allow rules. Supported forms:
 
 | Rule | Matches |
@@ -101,14 +103,14 @@ rules are checked first and win over allow rules. Supported forms:
 | `WebFetch(domain:docs.python.org)` | that host |
 | `mcp__github__*` | every tool on that MCP server |
 
-These are ClaudeGate's own rules, deliberately separate from
+These are ClaudeNext's own rules, deliberately separate from
 `.claude/settings.json`. A `PreToolUse` hook runs *before* Claude Code checks
 its own permission list, so rules living there would not stop this panel from
 appearing.
 
 ## Config
 
-`~/.claude-gate/config.json` — the app reads `port`, `sound`, `focusOnRequest`
+`~/.claudenext/config.json` — the app reads `port`, `sound`, `focusOnRequest`
 and `rememberScope`; the hook reads the rest.
 
 ```json
@@ -132,36 +134,46 @@ and `rememberScope`; the hook reads the rest.
 - **rememberScope** — `"project"` or `"global"`, where "always allow" writes.
 - **focusOnRequest** — `false` shows the panel without stealing keyboard focus.
 
-Restart the app after editing (config is read at launch).
+Restart the app after editing; config is read at launch.
 
 ## Endpoints
 
 ```bash
-curl -s 127.0.0.1:4471/health   # {"ok":true,"app":"ClaudeGate"}
+curl -s 127.0.0.1:4471/health   # {"ok":true,"app":"ClaudeNext"}
 curl -s 127.0.0.1:4471/status   # {"pending":1,"current":"Bash: npm run build","paused":false,...}
 ```
 
 Bound to loopback only. `/status` is handy for a statusline.
 
-## Layout
+## Development
+
+```bash
+./run-tests.sh   # swift build + both hook suites
+./build.sh       # dist/ClaudeNext.app, ad-hoc signed
+```
 
 ```
-Sources/ClaudeGate/
+Sources/ClaudeNext/
   main.swift           entry point, .accessory activation policy
   AppDelegate.swift    status item, floating panel, server wiring
-  GateServer.swift     loopback HTTP/1.1, long-polls /ask
-  GateModel.swift      request queue and recent decisions
+  PromptServer.swift   loopback HTTP/1.1, long-polls /ask
+  PromptModel.swift    request queue and recent decisions
   Models.swift         hook payload, decision, pending request
   Presentation.swift   per-tool copy, diffs, path shortening
   PromptView.swift     the panel
   Theme.swift          Claude palette and button styles
   StatusIcon.swift     the menu bar spark
-hooks/claude-gate-hook.py   rule matching, rule saving, hook I/O
+hooks/claudenext-hook.py   rule matching, rule saving, hook I/O
+tests/                     rule unit tests, hook integration tests
 ```
+
+`tests/test_integration.py` runs the real hook script against a stubbed app, so
+the offline and malformed-input paths are covered — those are the ones that must
+never turn into a silent allow.
 
 ## Notes
 
-- The app is ad-hoc signed. Gatekeeper may need a one-time approval in System
+- The app is ad-hoc signed. Gatekeeper may want a one-time approval in System
   Settings → Privacy & Security.
 - Hooks are a Claude Code feature, so this covers the CLI. It does not intercept
   prompts in the desktop or web apps.
