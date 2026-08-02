@@ -158,9 +158,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func applyContentSize(_ size: CGSize) {
         guard panel != nil else { return }
         var frame = panel.frame
-        frame.size = CGSize(width: max(size.width, 420), height: size.height)
+        frame.size = CGSize(width: max(size.width, 420),
+                            height: min(size.height, availableHeight()))
         frame.origin.y = anchorTop - frame.height
         panel.setFrame(frame, display: true, animate: false)
+    }
+
+    /// How tall the panel may grow before it would hang off the screen.
+    private func availableHeight() -> CGFloat {
+        let screen = panel.screen ?? statusItem.button?.window?.screen ?? NSScreen.main
+        guard let bottom = screen?.visibleFrame.minY, anchorTop > 0 else { return 600 }
+        return max(240, anchorTop - bottom - 8)
     }
 
     private func presentPanel(focus: Bool) {
@@ -176,6 +184,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             x = min(max(x, visible.minX + 8), visible.maxX - size.width - 8)
         }
         anchorTop = buttonRect.minY - 6
+        // Tell SwiftUI the same ceiling the window will enforce, so a tall
+        // stack scrolls instead of being clipped.
+        model.maxPanelHeight = min(720, availableHeight())
+        size.height = min(size.height, availableHeight())
 
         panel.setFrame(NSRect(x: x, y: anchorTop - size.height, width: size.width, height: size.height),
                        display: true, animate: false)

@@ -7,6 +7,12 @@ final class PromptModel: ObservableObject {
     @Published var recent: [RecentDecision] = []
     @Published var optionDown = false
     @Published var serverError: String?
+    /// Which card the keyboard acts on. Every pending request is on screen at
+    /// once, so exactly one of them owns ↩ / ⌘A / esc.
+    @Published var focusedID: UUID?
+    /// How tall the panel may grow, measured from the menu bar to the bottom of
+    /// the screen. The list scrolls within this so content is never clipped.
+    @Published var maxPanelHeight: CGFloat = 520
     @Published var paused = false {
         didSet { onQueueChange?() }
     }
@@ -34,8 +40,21 @@ final class PromptModel: ObservableObject {
             return
         }
         pending.append(request)
+        if focusedID == nil { focusedID = request.id }
         onQueueChange?()
         onNewRequest?()
+    }
+
+    // MARK: Focus
+
+    func focusNext() { moveFocus(by: 1) }
+    func focusPrevious() { moveFocus(by: -1) }
+
+    private func moveFocus(by delta: Int) {
+        guard pending.count > 1 else { return }
+        let current = pending.firstIndex { $0.id == focusedID } ?? 0
+        let next = (current + delta + pending.count) % pending.count
+        focusedID = pending[next].id
     }
 
     func resolve(_ request: PendingRequest, with decision: PromptDecision) {
@@ -60,7 +79,16 @@ final class PromptModel: ObservableObject {
     }
 
     private func drop(_ id: UUID) {
+        let index = pending.firstIndex { $0.id == id }
         pending.removeAll { $0.id == id }
+        if focusedID == id {
+            // Keep the focus where the answered card was, not back at the top.
+            if let index, !pending.isEmpty {
+                focusedID = pending[min(index, pending.count - 1)].id
+            } else {
+                focusedID = pending.first?.id
+            }
+        }
         onQueueChange?()
     }
 

@@ -8,12 +8,10 @@ struct RootView: View {
         let palette = Palette.of(scheme)
 
         VStack(spacing: 0) {
-            if let request = model.pending.first {
-                PromptView(model: model, request: request)
-                    .id(request.id)
-                    .transition(.opacity)
-            } else {
+            if model.pending.isEmpty {
                 IdleView(model: model)
+            } else {
+                RequestList(model: model)
             }
         }
         .frame(width: 420)
@@ -26,16 +24,102 @@ struct RootView: View {
     }
 }
 
-// MARK: - The permission prompt
+// MARK: - Every pending request, stacked
 
-struct PromptView: View {
+struct RequestList: View {
+    @ObservedObject var model: PromptModel
+    @Environment(\.palette) private var palette
+
+    /// Height of `listHeader` plus its divider, subtracted so the scroll area
+    /// and the window agree on where the bottom is.
+    private let headerAllowance: CGFloat = 37
+
+    var body: some View {
+        let stacked = model.pending.count > 1
+        let maxListHeight = max(240, model.maxPanelHeight - (stacked ? headerAllowance : 0))
+
+        VStack(spacing: 0) {
+            if stacked {
+                listHeader
+                Divider().overlay(palette.subtleBorder)
+            }
+
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    VStack(spacing: stacked ? 10 : 0) {
+                        ForEach(model.pending) { request in
+                            PromptCard(model: model,
+                                       request: request,
+                                       stacked: stacked,
+                                       isFocused: model.focusedID == request.id)
+                                .id(request.id)
+                        }
+                    }
+                    .padding(stacked ? 10 : 0)
+                }
+                .frame(maxHeight: maxListHeight)
+                .scrollBounceBehavior(.basedOnSize)
+                .onChange(of: model.focusedID) { _, id in
+                    guard let id else { return }
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
+            }
+        }
+    }
+
+    private var listHeader: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(palette.accent)
+                .frame(width: 7, height: 7)
+
+            Text("\(model.pending.count) requests waiting")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(palette.text)
+
+            Spacer(minLength: 8)
+
+            Button {
+                model.focusPrevious()
+            } label: {
+                Image(systemName: "chevron.up").font(.system(size: 10, weight: .semibold))
+            }
+            .buttonStyle(ActionButtonStyle(variant: .quiet, palette: palette))
+            .keyboardShortcut(.upArrow, modifiers: .command)
+            .help("Focus the previous request (⌘↑)")
+
+            Button {
+                model.focusNext()
+            } label: {
+                Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+            }
+            .buttonStyle(ActionButtonStyle(variant: .quiet, palette: palette))
+            .keyboardShortcut(.downArrow, modifiers: .command)
+            .help("Focus the next request (⌘↓)")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+    }
+}
+
+// MARK: - One permission prompt
+
+struct PromptCard: View {
     @ObservedObject var model: PromptModel
     @ObservedObject var request: PendingRequest
+    /// True when several requests share the panel and this needs its own frame.
+    var stacked: Bool
+    var isFocused: Bool
+
     @Environment(\.palette) private var palette
     @State private var message: String = ""
     @FocusState private var messageFocused: Bool
 
     private var p: Presentation { request.presentation }
+    /// Only the focused card answers the keyboard.
+    private var live: Bool { !stacked || isFocused }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -44,6 +128,23 @@ struct PromptView: View {
             body_
             Divider().overlay(palette.subtleBorder)
             footer
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(stacked ? palette.surface : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(stacked ? (isFocused ? palette.accent.opacity(0.65) : palette.border)
+                                      : Color.clear,
+                              lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .simultaneousGesture(TapGesture().onEnded {
+            model.focusedID = request.id
+        })
+        .onChange(of: messageFocused) { _, focused in
+            if focused { model.focusedID = request.id }
         }
     }
 
@@ -70,16 +171,6 @@ struct PromptView: View {
 
             Spacer(minLength: 8)
 
-            if model.pending.count > 1 {
-                Text("+\(model.pending.count - 1)")
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(palette.muted)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(palette.hover))
-                    .help("\(model.pending.count - 1) more request(s) waiting")
-            }
-
             Text(p.badge)
                 .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                 .foregroundStyle(palette.accent)
@@ -96,24 +187,33 @@ struct PromptView: View {
 
     // MARK: Body
 
+    /// Stacked cards grow to their (already line-clamped) content and let the
+    /// list scroll; a lone card scrolls inside itself instead.
+    @ViewBuilder
     private var body_: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(p.blocks) { block in
-                    blockView(block)
-                }
-                if p.blocks.isEmpty {
-                    Text("No additional details.")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(palette.faint)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+        if stacked {
+            blocks
+        } else {
+            ScrollView(.vertical) { blocks }
+                .frame(maxHeight: 260)
+                .scrollBounceBehavior(.basedOnSize)
         }
-        .frame(maxHeight: 260)
-        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var blocks: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(p.blocks) { block in
+                blockView(block)
+            }
+            if p.blocks.isEmpty {
+                Text("No additional details.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(palette.faint)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 
     @ViewBuilder
@@ -211,16 +311,16 @@ struct PromptView: View {
 
             HStack(spacing: 8) {
                 Button {
-                    decide(.deny, remember: model.optionDown)
+                    decide(.deny, remember: model.optionDown && live)
                 } label: {
                     HStack(spacing: 5) {
-                        Text(model.optionDown ? "Always deny" : "Deny")
-                        KeyCapLabel(text: "esc", color: palette.danger)
+                        Text(model.optionDown && live ? "Always deny" : "Deny")
+                        if live { KeyCapLabel(text: "esc", color: palette.danger) }
                     }
                 }
                 .buttonStyle(ActionButtonStyle(variant: .secondary, palette: palette, tint: palette.danger))
-                .keyboardShortcut(.cancelAction)
-                .help(model.optionDown
+                .keyboardShortcut(live ? .cancelAction : nil)
+                .help(model.optionDown && live
                       ? "Remember this as a deny rule"
                       : "Block this call. Anything typed above is sent to Claude as the reason.")
 
@@ -232,11 +332,11 @@ struct PromptView: View {
                     } label: {
                         HStack(spacing: 5) {
                             Text("Always allow")
-                            KeyCapLabel(text: "⌘A", color: palette.text)
+                            if live { KeyCapLabel(text: "⌘A", color: palette.text) }
                         }
                     }
                     .buttonStyle(ActionButtonStyle(variant: .secondary, palette: palette))
-                    .keyboardShortcut("a", modifiers: .command)
+                    .keyboardShortcut(live ? KeyboardShortcut("a", modifiers: .command) : nil)
                     .help("Adds the rule \(rule) to \(model.rememberScopeLabel)")
                 }
 
@@ -245,11 +345,11 @@ struct PromptView: View {
                 } label: {
                     HStack(spacing: 5) {
                         Text("Allow")
-                        KeyCapLabel(text: "↩", color: palette.onAccent)
+                        if live { KeyCapLabel(text: "↩", color: palette.onAccent) }
                     }
                 }
                 .buttonStyle(ActionButtonStyle(variant: .primary, palette: palette))
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(live ? .defaultAction : nil)
             }
 
             if let rule = request.payload.suggestedRule, !rule.isEmpty {

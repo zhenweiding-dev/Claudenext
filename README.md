@@ -68,7 +68,8 @@ or times out, you get the normal terminal prompt — it cannot fail open.
 | `esc` | Deny |
 | `⌥` + Deny | Always deny — saves the rule to the deny list |
 | Type a message, then `↩` | Deny, and hand the text to Claude as the reason |
-| Click the icon | Open the panel: pending request, or recent activity |
+| `⌘↑` / `⌘↓` | Move between stacked requests |
+| Click the icon | Open the panel: pending requests, or recent activity |
 | Right-click the icon | Pause, open rules, open config, quit |
 
 A message typed into the field is passed to Claude as
@@ -76,7 +77,23 @@ A message typed into the field is passed to Claude as
 way it would if you had typed it into the terminal prompt.
 
 Clicking away parks a request rather than answering it — the menu bar icon turns
-orange and shows a count. Requests queue up and are answered oldest first.
+orange and shows a count.
+
+## Several sessions at once
+
+Every Claude Code session gets its own blocking connection, so parallel
+sessions work. When more than one request is waiting they are **all shown at
+once**, stacked as scrollable cards with their own buttons and message field —
+answer them in whatever order you like, not oldest first.
+
+One card is focused at a time and owns the keyboard; `⌘↑` / `⌘↓` (or the
+chevrons in the header, or a click) move the focus, and the list scrolls to
+follow. Unfocused cards hide their key hints so it stays obvious what `↩` will
+hit. The panel grows to fit two cards and scrolls beyond that, capped so it
+never runs off the bottom of the screen.
+
+Remembered rules are per project, so two sessions in different projects write
+to their own `.claude/claudenext.json` and never collide.
 
 ## Rules
 
