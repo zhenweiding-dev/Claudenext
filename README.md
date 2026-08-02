@@ -30,8 +30,8 @@ Requires macOS 14+ and the Swift toolchain (`xcode-select --install`).
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ClaudeNext.git
-cd ClaudeNext
+git clone https://github.com/zhenweiding-dev/Claudenext.git
+cd Claudenext
 ./install.sh
 ```
 
