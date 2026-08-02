@@ -37,12 +37,44 @@ cd Claudenext
 
 That builds the app into `~/Applications/ClaudeNext.app`, copies the hook to
 `~/.claudenext/`, registers it as a `PreToolUse` hook in
-`~/.claude/settings.json`, and launches it.
+`~/.claude/settings.json`, installs a login agent, and starts it.
 
 Restart any running Claude Code session afterwards so it reloads the hook, then
 ask Claude to run something.
 
 `./uninstall.sh` reverses all of it and leaves your rules alone.
+
+## Running it
+
+Nothing to run. The login agent
+(`~/Library/LaunchAgents/com.claudenext.menubar.plist`) starts ClaudeNext when
+you log in and restarts it if it ever crashes — but not if you quit it
+yourself, so quitting from the menu stays quitting.
+
+Claude Code needs no flags and no per-project setup: the hook is registered
+globally, so every session in every directory goes through it.
+
+```bash
+launchctl kickstart -k gui/$UID/com.claudenext.menubar   # restart it
+curl -s 127.0.0.1:4471/health                            # is it up?
+```
+
+If it is not running, nothing breaks — the hook falls through and Claude Code
+prompts in the terminal as usual.
+
+Editing `~/.claudenext/config.json` needs a restart, since config is read at
+launch. Editing rules does not; the hook reads those on every call.
+
+### Updating
+
+```bash
+git pull && ./install.sh
+```
+
+Re-running `install.sh` is safe: it replaces the running instance rather than
+stacking a second menu bar icon, and the settings merge is idempotent — it
+rewrites its own hook entry and leaves every other key and hook in
+`~/.claude/settings.json` untouched.
 
 ## How it works
 

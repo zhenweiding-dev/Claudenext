@@ -160,13 +160,27 @@ struct PromptCard: View {
                 Text(p.title)
                     .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(palette.text)
-                if let subtitle = p.subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundStyle(palette.muted)
+
+                HStack(spacing: 5) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 9))
+                        .foregroundStyle(palette.faint)
+                    Text(p.project)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(palette.text)
                         .lineLimit(1)
-                        .truncationMode(.middle)
+                    if let subtitle = p.subtitle, !subtitle.isEmpty {
+                        Text("·")
+                            .font(.system(size: 11))
+                            .foregroundStyle(palette.faint)
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(palette.muted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
+                .help(p.projectPath)
             }
 
             Spacer(minLength: 8)

@@ -19,6 +19,10 @@ struct Presentation {
         }
     }
 
+    /// The session's project, so parallel sessions are told apart at a glance.
+    var project: String = ""
+    /// Full working directory, shown on hover.
+    var projectPath: String = ""
     var title: String
     var badge: String
     var subtitle: String?
@@ -29,6 +33,19 @@ struct Presentation {
     private static let maxLines = 14
 
     static func make(payload: HookPayload) -> Presentation {
+        var result = build(payload: payload)
+        result.project = projectName(for: payload.cwd)
+        result.projectPath = abbreviateHome(payload.cwd)
+        return result
+    }
+
+    /// The directory name is what people actually call the project.
+    private static func projectName(for cwd: String) -> String {
+        let name = URL(fileURLWithPath: cwd).lastPathComponent
+        return name.isEmpty || name == "/" ? abbreviateHome(cwd) : name
+    }
+
+    private static func build(payload: HookPayload) -> Presentation {
         let input = payload.toolInput
         let cwd = payload.cwd
         let tool = payload.toolName
@@ -46,7 +63,7 @@ struct Presentation {
             return Presentation(
                 title: "Claude wants to run a command",
                 badge: "Bash",
-                subtitle: shortPath(cwd, cwd: cwd),
+                subtitle: nil,
                 blocks: blocks,
                 summary: firstLine(command)
             )

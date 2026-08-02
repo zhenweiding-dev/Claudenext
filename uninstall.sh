@@ -4,6 +4,12 @@ set -euo pipefail
 
 SETTINGS="$HOME/.claude/settings.json"
 
+echo "==> Removing the login agent"
+AGENT="$HOME/Library/LaunchAgents/com.claudenext.menubar.plist"
+launchctl bootout "gui/$UID/com.claudenext.menubar" 2>/dev/null || \
+  launchctl unload -w "$AGENT" 2>/dev/null || true
+rm -f "$AGENT"
+
 echo "==> Quitting ClaudeNext"
 osascript -e 'quit app "ClaudeNext"' 2>/dev/null || true
 pkill -x ClaudeNext 2>/dev/null || true

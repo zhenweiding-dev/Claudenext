@@ -76,12 +76,45 @@ os.replace(tmp, path)
 print(f"    hook registered ({hook_path})")
 PY
 
-echo "==> Launching"
-open -a "$APPS/ClaudeNext.app"
+echo "==> Registering the login agent"
+AGENT="$HOME/Library/LaunchAgents/com.claudenext.menubar.plist"
+mkdir -p "$(dirname "$AGENT")"
+cat > "$AGENT" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key><string>com.claudenext.menubar</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>$APPS/ClaudeNext.app/Contents/MacOS/ClaudeNext</string>
+	</array>
+	<key>RunAtLoad</key><true/>
+	<key>KeepAlive</key>
+	<dict><key>SuccessfulExit</key><false/></dict>
+	<key>ProcessType</key><string>Interactive</string>
+</dict>
+</plist>
+PLIST
+
+# Replace any previous instance so we do not end up with two menu bar icons.
+pkill -x ClaudeNext 2>/dev/null || true
+launchctl bootout "gui/$UID/com.claudenext.menubar" 2>/dev/null || true
+sleep 1
+launchctl bootstrap "gui/$UID" "$AGENT" 2>/dev/null || launchctl load -w "$AGENT"
+
+sleep 1
+if curl -fsS --max-time 5 "http://127.0.0.1:4471/health" >/dev/null 2>&1; then
+  echo "    running and answering on 127.0.0.1:4471"
+else
+  echo "    started, but the health check did not answer yet"
+fi
 
 cat <<'EOF'
 
-ClaudeNext is running — look for the spark in your menu bar.
+ClaudeNext is installed. Look for the spark in your menu bar.
+
+It starts automatically at login from now on — there is nothing to run.
 
 Restart any open Claude Code session so it picks up the new hook, then try:
     claude

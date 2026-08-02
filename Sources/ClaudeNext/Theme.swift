@@ -10,8 +10,12 @@ func hexColor(_ hex: UInt32, _ alpha: Double = 1) -> Color {
     )
 }
 
-/// Colours lifted from Claude's own surfaces: cream canvas, ivory panels,
-/// the terracotta accent, and the warm-grey dark mode.
+/// Colours taken from the Claude app's own token set (`app.asar`).
+///
+/// The panel is a popover, so its background is `--surface-popover`
+/// (`--surface-3` → `--gray-0`), not the page canvas. Everything else follows
+/// the same `--gray-*` / `--neutral-*` ramp the app ships, which is a neutral
+/// scale rather than the older warm `--bg-*` one.
 struct Palette {
     var bg: Color
     var surface: Color
@@ -32,42 +36,42 @@ struct Palette {
     var hover: Color
 
     static let light = Palette(
-        bg: hexColor(0xFAF9F5),
-        surface: hexColor(0xFFFFFF),
-        codeBg: hexColor(0xF2F1EA),
-        border: hexColor(0xDEDCD3),
-        subtleBorder: hexColor(0xE9E7DF),
-        text: hexColor(0x1F1E1D),
-        muted: hexColor(0x73726C),
-        faint: hexColor(0x9A9890),
-        accent: hexColor(0xD97757),
+        bg: hexColor(0xFFFFFF),           // surface-3 · gray-0
+        surface: hexColor(0xFCFCFB),      // surface-1 · gray-10
+        codeBg: hexColor(0xF0EFEC),       // gray-50
+        border: hexColor(0xE7E7E7),       // alpha-2 over white
+        subtleBorder: hexColor(0xF3F3F3), // alpha-1 over white
+        text: hexColor(0x0B0B0B),         // neutral-900
+        muted: hexColor(0x52514E),        // neutral-600
+        faint: hexColor(0x898781),        // neutral-400
+        accent: hexColor(0xD97757),       // accent-brand
         accentPressed: hexColor(0xC2664A),
-        onAccent: hexColor(0xFFFFFF),
+        onAccent: hexColor(0xFFFFFF),     // on-brand · gray-0
         danger: hexColor(0xB03A2A),
-        addFg: hexColor(0x2C6E49),
-        addBg: hexColor(0xE6F2EA),
-        delFg: hexColor(0xA33A28),
-        delBg: hexColor(0xFAE9E5),
-        hover: hexColor(0x000000, 0.05)
+        addFg: hexColor(0x1E9E3C),        // text-git-added
+        addBg: hexColor(0xE9F5EC),
+        delFg: hexColor(0xCD2054),        // text-git-removed
+        delBg: hexColor(0xFAE9EE),
+        hover: hexColor(0x000000, 0.05)   // alpha-1
     )
 
     static let dark = Palette(
-        bg: hexColor(0x262624),
-        surface: hexColor(0x30302E),
-        codeBg: hexColor(0x1E1E1C),
-        border: hexColor(0x45443F),
-        subtleBorder: hexColor(0x3A3936),
-        text: hexColor(0xF5F4EE),
-        muted: hexColor(0xA6A49C),
-        faint: hexColor(0x7C7A73),
+        bg: hexColor(0x383835),           // surface-3 · gray-700
+        surface: hexColor(0x1A1A19),      // surface-1 · gray-830
+        codeBg: hexColor(0x20201F),       // gray-800
+        border: hexColor(0x4C4C49),       // alpha-2 over surface-3
+        subtleBorder: hexColor(0x42423F), // alpha-1 over surface-3
+        text: hexColor(0xFFFFFF),         // neutral-900 · gray-0
+        muted: hexColor(0xA5A49A),        // neutral-600 · gray-300
+        faint: hexColor(0x6D6B67),        // neutral-400 · gray-500
         accent: hexColor(0xD97757),
         accentPressed: hexColor(0xE28C6F),
-        onAccent: hexColor(0x1F1E1D),
+        onAccent: hexColor(0xFFFFFF),     // on-brand is gray-0 in both modes
         danger: hexColor(0xE0705C),
-        addFg: hexColor(0x7BC49A),
-        addBg: hexColor(0x1F2E26),
-        delFg: hexColor(0xE0836F),
-        delBg: hexColor(0x33221F),
+        addFg: hexColor(0x32D74B),
+        addBg: hexColor(0x374838),
+        delFg: hexColor(0xFF2C56),
+        delBg: hexColor(0x4C3738),
         hover: hexColor(0xFFFFFF, 0.07)
     )
 
