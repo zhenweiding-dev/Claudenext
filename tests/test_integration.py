@@ -77,7 +77,13 @@ def check(desc, condition, detail=""):
 
 
 write_config(PORT)
-rules_path = os.path.join(PROJ, ".claude", "claudenext.json")
+settings_path = os.path.join(PROJ, ".claude", "settings.local.json")
+scope_path = os.path.join(PROJ, ".claude", "claudenext.json")
+
+
+def write_permissions(**buckets):
+    os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+    json.dump({"permissions": buckets}, open(settings_path, "w"))
 
 # 1. A plain allow.
 reply = {"decision": "allow"}
@@ -94,13 +100,19 @@ check("deny is reported as deny", out and out["permissionDecision"] == "deny", o
 check("the typed message becomes the reason",
       out and out["permissionDecisionReason"] == "use pnpm instead", out)
 
-# 3. "Always allow" writes a project rule.
+# 3. "Always allow" writes into the project's own permissions.
+os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+json.dump({"model": "opus", "permissions": {"allow": ["Bash(ls:*)"]}},
+          open(settings_path, "w"))
 reply = {"decision": "allow", "remember": True}
 rc, out, err = run("Bash", {"command": "npm run build --watch"})
-check("a rules file appears", os.path.exists(rules_path))
-rules = json.load(open(rules_path)) if os.path.exists(rules_path) else {}
-check("the rule is saved", rules.get("allow") == ["Bash(npm run:*)"], rules)
+saved = json.load(open(settings_path))
+check("the rule lands in permissions.allow",
+      saved["permissions"]["allow"] == ["Bash(ls:*)", "Bash(npm run:*)"], saved)
+check("unrelated keys in that file survive", saved.get("model") == "opus", saved)
 check("the reason mentions the save", out and "saved" in out["permissionDecisionReason"], out)
+check("it names settings.local.json",
+      out and "settings.local.json" in out["permissionDecisionReason"], out)
 
 # 4. That rule now short-circuits without bothering the app.
 before = len(seen)
@@ -110,8 +122,7 @@ check("a saved rule decides on its own", out and out["permissionDecision"] == "a
 check("the app is not contacted", len(seen) == before, f"{len(seen)} vs {before}")
 
 # 5. Deny rules beat allow rules.
-json.dump({"allow": ["Bash(npm run:*)"], "deny": ["Bash(npm run deploy:*)"]},
-          open(rules_path, "w"))
+write_permissions(allow=["Bash(npm run:*)"], deny=["Bash(npm run deploy:*)"])
 rc, out, err = run("Bash", {"command": "npm run deploy"})
 check("deny wins", out and out["permissionDecision"] == "deny", out)
 
@@ -136,8 +147,8 @@ check("garbage prints nothing", out is None, out)
 rc, out, err = run("Bash", {"command": "ls"}, event="PostToolUse")
 check("other events print nothing", out is None, out)
 
-# 10. Claude Code's own permissions are honoured, so nothing gets asked twice.
-os.remove(rules_path)
+# 10. The shared settings.json counts too, not just the local one.
+os.remove(settings_path)
 write_config(PORT)
 cc_settings = os.path.join(PROJ, ".claude", "settings.json")
 json.dump({"permissions": {"allow": ["Bash(git status:*)"],
@@ -153,17 +164,17 @@ check("settings.json allow skips the panel", len(seen) == before, len(seen))
 
 rc, out, err = run("Bash", {"command": "rm -rf build"})
 check("settings.json deny is honoured", out and out["permissionDecision"] == "deny", out)
-check("deny reason names the source",
-      out and "Claude Code" in out["permissionDecisionReason"], out)
+check("deny reason quotes the rule",
+      out and "Bash(rm:*)" in out["permissionDecisionReason"], out)
 
 # "ask" must beat an allow rule from either source and reach the panel.
-json.dump({"allow": ["Bash(git push:*)"], "deny": []}, open(rules_path, "w"))
+write_permissions(allow=["Bash(git push:*)"])
 before = len(seen)
 reply = {"decision": "allow"}
 rc, out, err = run("Bash", {"command": "git push origin main"})
 check("settings.json ask outranks allow", len(seen) == before + 1, len(seen))
 check("ask still ends in a real answer", out and out["permissionDecision"] == "allow", out)
-os.remove(rules_path)
+os.remove(settings_path)
 
 # A repo deny must be unreachable from the panel. "allow" from a hook bypasses
 # Claude Code's own permission check, so the deny has to be enforced before the
@@ -177,30 +188,26 @@ check("a repo deny cannot be clicked away",
 os.remove(cc_settings)
 write_config(PORT)
 
-# 11. A relative path rule in the global file must not leak into other repos.
+# 11. Exactly one rule source: files of our own grant nothing.
 os.makedirs(os.path.join(HOME, ".claudenext"), exist_ok=True)
-json.dump({"allow": ["Edit(src/**)", "Bash(git status:*)"], "deny": []},
+json.dump({"allow": ["Bash(echo:*)"], "deny": []},
           open(os.path.join(HOME, ".claudenext", "rules.json"), "w"))
+json.dump({"allow": ["Bash(echo:*)"], "deny": []}, open(scope_path, "w"))
 write_config(PORT)
 before = len(seen)
 reply = {"decision": "allow"}
-rc, out, err = run("Edit", {"file_path": os.path.join(PROJ, "src", "x.ts"),
-                            "old_string": "a", "new_string": "b"})
-check("global relative path rule is ignored", len(seen) == before + 1, len(seen))
-before = len(seen)
-rc, out, err = run("Bash", {"command": "git status --short"})
-check("global command rule still applies", len(seen) == before, len(seen))
-check("and it allows", out and out["permissionDecision"] == "allow", out)
+rc, out, err = run("Bash", {"command": "echo hi"})
+check("a legacy rules file grants nothing", len(seen) == before + 1, len(seen))
 os.remove(os.path.join(HOME, ".claudenext", "rules.json"))
 
-# 12. A project can override which tools are intercepted at all.
-json.dump({"allow": [], "deny": [], "intercept": ["Read"]}, open(rules_path, "w"))
+# 12. A project can still override which tools are intercepted at all.
+json.dump({"intercept": ["Read"]}, open(scope_path, "w"))
 before = len(seen)
 rc, out, err = run("Bash", {"command": "echo hi"})
 check("project override drops Bash", out is None and len(seen) == before, out)
 rc, out, err = run("Read", {"file_path": os.path.join(PROJ, "src", "a.ts")})
 check("project override adds Read", len(seen) == before + 1, len(seen))
-os.remove(rules_path)
+os.remove(scope_path)
 
 server.shutdown()
 shutil.rmtree(workdir, ignore_errors=True)

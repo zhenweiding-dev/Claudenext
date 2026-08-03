@@ -1,14 +1,12 @@
 import Foundation
 
-/// `<project>/.claude/claudenext.json`.
+/// `<project>/.claude/claudenext.json` — which tools this project routes
+/// through the panel at all.
 ///
-/// Both ends write this file: the hook when you remember a rule, the panel when
-/// you change what a project asks about. Writes take an exclusive lock on a
-/// sibling lockfile and land via atomic rename, so neither side can read a
-/// half-written file or silently drop the other's change.
-struct ProjectRules {
-    var allow: [String] = []
-    var deny: [String] = []
+/// Deliberately *not* a rule store. Remembered rules live in the project's own
+/// `.claude/settings.local.json` permissions, so there is one permission list
+/// and Claude Code honours it too. This file only holds scope.
+struct ProjectScope {
     /// `nil` means the project has no opinion and inherits the global list.
     var intercept: [String]?
     var ignore: [String]?
@@ -25,20 +23,17 @@ struct ProjectRules {
         directory(for: cwd).appendingPathComponent(".claudenext.lock")
     }
 
-    static func load(cwd: String) -> ProjectRules {
-        var rules = ProjectRules()
+    static func load(cwd: String) -> ProjectScope {
+        var scope = ProjectScope()
         guard let data = try? Data(contentsOf: url(for: cwd)),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        else { return rules }
-        rules.allow = (object["allow"] as? [String]) ?? []
-        rules.deny = (object["deny"] as? [String]) ?? []
-        rules.intercept = object["intercept"] as? [String]
-        rules.ignore = object["ignore"] as? [String]
-        return rules
+        else { return scope }
+        scope.intercept = object["intercept"] as? [String]
+        scope.ignore = object["ignore"] as? [String]
+        return scope
     }
 
-    /// Write `intercept`, leaving every other key — including rules the hook
-    /// saved a moment ago — exactly as found.
+    /// Write `intercept`, leaving every other key exactly as found.
     static func setIntercept(_ tools: [String], cwd: String) {
         mutate(cwd: cwd) { object in
             object["intercept"] = tools
@@ -60,8 +55,6 @@ struct ProjectRules {
             object = existing
         }
         change(&object)
-        object["allow"] = object["allow"] ?? []
-        object["deny"] = object["deny"] ?? []
 
         guard let data = try? JSONSerialization.data(
             withJSONObject: object, options: [.prettyPrinted, .sortedKeys]

@@ -379,7 +379,7 @@ struct PromptCard: View {
                     }
                     .buttonStyle(ActionButtonStyle(variant: .secondary, palette: palette))
                     .keyboardShortcut(live ? KeyboardShortcut("a", modifiers: .command) : nil)
-                    .help("Adds \(rule) to \(p.project)'s own rules file")
+                    .help("Adds \(rule) to \(p.project)/.claude/settings.local.json")
                 }
 
                 Button {

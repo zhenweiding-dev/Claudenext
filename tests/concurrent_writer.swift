@@ -15,7 +15,7 @@ enum ConcurrentWriter {
         }
         let cwd = CommandLine.arguments[1]
         for i in 0..<rounds {
-            ProjectRules.setIntercept(["Bash", "Tool\(i)"], cwd: cwd)
+            ProjectScope.setIntercept(["Bash", "Tool\(i)"], cwd: cwd)
         }
     }
 }

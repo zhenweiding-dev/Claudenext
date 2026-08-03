@@ -54,7 +54,7 @@ final class PromptModel: ObservableObject {
             list.append(tool)
         }
         projectIntercept[cwd] = list
-        ProjectRules.setIntercept(list, cwd: cwd)
+        ProjectScope.setIntercept(list, cwd: cwd)
     }
 
     /// Wired up by the app delegate.
@@ -78,7 +78,7 @@ final class PromptModel: ObservableObject {
         if focusedID == nil { focusedID = request.id }
         let cwd = request.payload.cwd
         if projectIntercept[cwd] == nil,
-           let override = ProjectRules.load(cwd: cwd).intercept {
+           let override = ProjectScope.load(cwd: cwd).intercept {
             projectIntercept[cwd] = override
         }
         onQueueChange?()
@@ -134,16 +134,13 @@ final class PromptModel: ObservableObject {
 
     // MARK: Files
 
+    /// Opens the project's own permission list — the one place rules live.
     func openRulesFile() {
-        let url: URL
-        if let cwd = pending.first?.payload.cwd ?? lastCwd {
-            url = URL(fileURLWithPath: cwd)
-                .appendingPathComponent(".claude")
-                .appendingPathComponent("claudenext.json")
-        } else {
-            url = AppConfig.supportDirectory.appendingPathComponent("rules.json")
-        }
-        reveal(url, seed: #"{\#n  "allow": [],\#n  "deny": []\#n}\#n"#)
+        guard let cwd = pending.first?.payload.cwd ?? lastCwd else { return }
+        let url = URL(fileURLWithPath: cwd)
+            .appendingPathComponent(".claude")
+            .appendingPathComponent("settings.local.json")
+        reveal(url, seed: "{\n  \"permissions\": {\n    \"allow\": [],\n    \"deny\": []\n  }\n}\n")
     }
 
     func openConfigFile() {

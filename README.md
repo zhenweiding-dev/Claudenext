@@ -78,9 +78,9 @@ Claude Code fires a `PreToolUse` hook before every tool call.
 `claudenext-hook.py` resolves it in this order:
 
 1. **Not in the ask-about list** → prints nothing, Claude Code prompts as usual.
-2. **Any deny rule matches** → denied, no UI. Yours or the repo's.
+2. **A `permissions.deny` entry matches** → denied, no UI.
 3. **A `permissions.ask` entry matches** → skips step 4, always shows the panel.
-4. **Any allow rule matches** → allowed, no UI. Yours or the repo's.
+4. **A `permissions.allow` entry matches** → allowed, no UI.
 5. **Otherwise** → `POST /ask` to the app on `127.0.0.1:4471`. The request stays
    open, and that is what blocks Claude Code until you answer.
 6. **App not running, or you never answered** → prints nothing, Claude Code
@@ -121,27 +121,29 @@ sessions editing the same filename in different repos are told apart.
 
 ## Rules
 
-Every remembered rule is written to the project it was approved in,
-`<project>/.claude/claudenext.json`:
+There is one rule source: **your own Claude Code permissions**. ClaudeNext does
+not keep a rule store of its own.
 
-```json
-{
-  "allow": ["Bash(npm run:*)", "Edit(src/**)"],
-  "deny": ["Bash(git push:*)"],
-  "intercept": ["Bash", "Edit", "Read"]
-}
+Reading, in Claude Code's own precedence order:
+
+```
+~/.claude/settings.json                    permissions.allow / deny / ask
+<project>/.claude/settings.json            (shared, committed)
+<project>/.claude/settings.local.json      (personal, gitignored)
 ```
 
-There is deliberately no "remember everywhere" option. A suggested rule like
-`Edit(src/**)` is resolved against the current working directory, so storing it
-globally would silently authorise `src/**` in *every* repo Claude later touches.
+Writing: **Always allow** and **Always deny** append to
+`<project>/.claude/settings.local.json`, the personal half of that pair. Two
+consequences worth having — Claude Code honours those rules whether or not
+ClaudeNext is running, and you never have to look in two places to find out why
+something was allowed.
 
-`~/.claudenext/rules.json` is still read for rules you write by hand, but only
-ones that mean the same thing outside a project — command prefixes, domains, and
-absolute or `~`-rooted paths. Relative path rules there are ignored for the same
-reason.
+Rules are always written to the project they were approved in. There is
+deliberately no "remember everywhere": a suggested rule like `Edit(src/**)` is
+resolved against the current working directory, so storing it globally would
+silently authorise `src/**` in every other repo.
 
-Deny is checked before allow. Supported forms:
+Deny beats allow, and an `ask` entry beats both and always reaches the panel.
 
 | Rule | Matches |
 |---|---|
@@ -154,30 +156,27 @@ Deny is checked before allow. Supported forms:
 | `WebFetch(domain:docs.python.org)` | that host |
 | `mcp__github__*` | every tool on that MCP server |
 
-### Your repo's existing permissions
+Two limits are deliberate, because a rule has to mean only what it says:
 
-The hook also reads `permissions.allow` / `deny` / `ask` from
-`~/.claude/settings.json`, `<project>/.claude/settings.json` and
-`settings.local.json`. Anything you already approved there is not asked about a
-second time, and `ask` entries outrank every allow rule and always reach the
-panel.
-
-There is no switch for this. A hook answering `allow` bypasses Claude Code's own
-permission check, so a repo's `deny` list has to be enforced before the panel is
-ever consulted — otherwise one click here would override something the repo
-explicitly forbids.
+- A rule containing a wildcard never matches a command with `;`, `&`, `|`, `<`,
+  `>`, a backtick or `$(` in it. `Bash(git status:*)` is a statement about
+  `git status`, not about `git status && rm -rf ~`. Spell a chained command out
+  in full if you really want to allow one.
+- Paths are normalised and anything still containing `..` is refused, so
+  `Edit(src/**)` cannot be walked out of.
 
 ### What each project asks about
 
-The **Ask about in ‹project›** row at the bottom of a card is that project's own
-intercept list, collapsed by default. It shows the project's real state — the
-summary reads `· global` while the project is still following the global default
-— and changing anything writes the whole effective list into that project's
-`claudenext.json`.
+The **Ask about in ‹project›** row at the bottom of a card is that project's
+intercept list — which tools reach the panel at all — collapsed by default. It
+is scope, not permission, so it lives in ClaudeNext's own
+`<project>/.claude/claudenext.json`. The summary reads `· global` while the
+project is still following the global default; changing anything writes the
+whole effective list into that file.
 
-Both the app and the hook write that file, so writes take an exclusive `flock`
-on `<project>/.claude/.claudenext.lock` and land via atomic rename. Neither side
-can lose the other's change.
+Writes to either file take an exclusive `flock` on
+`<project>/.claude/.claudenext.lock` and land via atomic rename, so two sessions
+saving rules at the same time cannot lose each other's work.
 
 ## Config
 
@@ -249,7 +248,7 @@ Sources/ClaudeNext/
   Models.swift         hook payload, decision, pending request
   Presentation.swift   per-tool copy, diffs, project and path naming
   PromptView.swift     the panel
-  ProjectRules.swift   locked read-modify-write of a project's rules file
+  ProjectScope.swift   locked read-modify-write of a project's scope file
   AppConfig.swift      ~/.claudenext/config.json
   Theme.swift          palette taken from the Claude app's own tokens
   StatusIcon.swift     the menu bar spark

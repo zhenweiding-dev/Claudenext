@@ -32,8 +32,13 @@ SUPPORT_DIR = os.path.expanduser(
     os.environ.get("CLAUDENEXT_HOME") or "~/.claudenext"
 )
 CONFIG_PATH = os.path.join(SUPPORT_DIR, "config.json")
-GLOBAL_RULES_PATH = os.path.join(SUPPORT_DIR, "rules.json")
-PROJECT_RULES_RELPATH = os.path.join(".claude", "claudenext.json")
+# Remembered rules go where Claude Code already keeps them, so there is one
+# permission list rather than a parallel one. settings.local.json is the
+# personal, gitignored half of that pair.
+SETTINGS_RELPATH = os.path.join(".claude", "settings.local.json")
+# ClaudeNext's own per-project scope — which tools reach the panel at all.
+# Not a rule source.
+PROJECT_SCOPE_RELPATH = os.path.join(".claude", "claudenext.json")
 
 DEFAULT_CONFIG = {
     "port": 4471,
@@ -80,45 +85,13 @@ def load_config():
     return cfg
 
 
-def rules_path(cwd):
-    """Remembered rules always land next to the code they were approved in.
-
-    A suggested rule like Edit(src/**) is resolved against the *current* cwd, so
-    storing one globally would silently authorise src/** in every other repo.
-    """
-    return os.path.join(cwd, PROJECT_RULES_RELPATH)
-
-
-def is_globally_meaningful(rule):
-    """Whether a rule says the same thing outside the project it came from.
-
-    Command prefixes and domains do; a relative path does not, so those are
-    ignored if someone hand-writes them into the global file.
-    """
-    name, arg = split_rule(rule)
-    if not arg or arg == "*":
-        return True
-    if name == "Bash" or arg.startswith("domain:"):
-        return True
-    return arg.startswith("/") or arg.startswith("~")
-
-
-def load_rules(cwd):
-    """Project rules layered on top of hand-written global ones."""
-    allow, deny = [], []
-    global_data = load_json(GLOBAL_RULES_PATH, {})
-    for key, bucket in (("allow", allow), ("deny", deny)):
-        bucket += [r for r in global_data.get(key, [])
-                   if isinstance(r, str) and is_globally_meaningful(r)]
-    project_data = load_json(os.path.join(cwd, PROJECT_RULES_RELPATH), {})
-    for key, bucket in (("allow", allow), ("deny", deny)):
-        bucket += [r for r in project_data.get(key, []) if isinstance(r, str)]
-    return allow, deny
+def settings_path(cwd):
+    return os.path.join(cwd, SETTINGS_RELPATH)
 
 
 def project_overrides(cwd):
     """`intercept` / `ignore` set per project in .claude/claudenext.json."""
-    data = load_json(os.path.join(cwd, PROJECT_RULES_RELPATH), {})
+    data = load_json(os.path.join(cwd, PROJECT_SCOPE_RELPATH), {})
     out = {}
     for key in ("intercept", "ignore"):
         value = data.get(key)
@@ -127,12 +100,12 @@ def project_overrides(cwd):
     return out
 
 
-def claude_code_permissions(cwd):
-    """Whatever Claude Code itself was already told about this project.
+def permissions(cwd):
+    """The only rule source: the user's own Claude Code permission lists.
 
-    Its rule syntax is the same shape as ours, so honouring these means a call
-    the user already approved in settings.json does not get asked about twice.
-    Read in Claude Code's own precedence order, least specific first.
+    Read in Claude Code's own precedence order, least specific first. Keeping
+    rules here rather than in a file of our own means Claude Code honours them
+    too, they survive uninstalling this, and there is one place to look.
     """
     allow, deny, ask = [], [], []
     paths = [
@@ -152,13 +125,13 @@ def claude_code_permissions(cwd):
 
 
 def save_rule(cwd, rule, bucket):
-    """Append a rule under an exclusive lock.
+    """Append a rule to the project's own permissions.
 
-    The menu bar app writes this same file when you change what a project asks
-    about, and two sessions can save at once, so the whole read-modify-write
-    happens inside flock() on a sibling lockfile. The app takes the same lock.
+    Two sessions can save at once, so the whole read-modify-write happens
+    inside flock() on a sibling lockfile, and every other key in the file is
+    left exactly as found.
     """
-    path = rules_path(cwd)
+    path = settings_path(cwd)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     lock_path = os.path.join(os.path.dirname(path), ".claudenext.lock")
 
@@ -166,18 +139,20 @@ def save_rule(cwd, rule, bucket):
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
             data = load_json(path, {})
-            entries = data.get(bucket)
+            perms = data.get("permissions")
+            if not isinstance(perms, dict):
+                perms = {}
+            entries = perms.get(bucket)
             if not isinstance(entries, list):
                 entries = []
             if rule in entries:
                 return path
             entries.append(rule)
-            data[bucket] = entries
-            data.setdefault("allow", [])
-            data.setdefault("deny", [])
+            perms[bucket] = entries
+            data["permissions"] = perms
             tmp = f"{path}.{os.getpid()}.tmp"
             with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(data, fh, indent=2, sort_keys=True)
+                json.dump(data, fh, indent=2)
                 fh.write("\n")
             os.replace(tmp, path)
         finally:
@@ -399,28 +374,19 @@ def main():
     if not matches_any(cfg.get("intercept", []), tool_name):
         passthrough()
 
-    allow_rules, deny_rules = load_rules(cwd)
-    # Always: a decision of "allow" bypasses Claude Code's own permission
-    # check, so ignoring the repo's deny list would let one click here
-    # override something the repo explicitly forbids.
-    cc_allow, cc_deny, cc_ask = claude_code_permissions(cwd)
+    allow_rules, deny_rules, ask_rules = permissions(cwd)
 
-    # Deny wins over everything, from either source.
+    # Deny wins over everything. A decision of "allow" bypasses Claude Code's
+    # own permission check, so the deny list has to be enforced here.
     hit = first_match(deny_rules, tool_name, tool_input, cwd)
     if hit:
-        emit("deny", f"Blocked by ClaudeNext rule {hit}")
-    hit = first_match(cc_deny, tool_name, tool_input, cwd)
-    if hit:
-        emit("deny", f"Blocked by your Claude Code deny rule {hit}")
+        emit("deny", f"Blocked by your deny rule {hit}")
 
     # An explicit "ask" outranks any allow, so fall through to the panel.
-    if not first_match(cc_ask, tool_name, tool_input, cwd):
+    if not first_match(ask_rules, tool_name, tool_input, cwd):
         hit = first_match(allow_rules, tool_name, tool_input, cwd)
         if hit:
-            emit("allow", f"Allowed by ClaudeNext rule {hit}")
-        hit = first_match(cc_allow, tool_name, tool_input, cwd)
-        if hit:
-            emit("allow", f"Already allowed by your Claude Code rule {hit}")
+            emit("allow", f"Already allowed by your rule {hit}")
 
     rule = suggest_rule(tool_name, tool_input, cwd)
     payload = {
