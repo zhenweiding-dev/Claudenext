@@ -21,6 +21,10 @@ struct Presentation {
 
     /// The session's project, so parallel sessions are told apart at a glance.
     var project: String = ""
+    /// Where inside the project the session sits. `nil` at the repository root.
+    /// A bare folder name is useless in a monorepo — three of them are called
+    /// `src` — so the repository names the project and this says where in it.
+    var location: String?
     /// Full working directory, shown on hover.
     var projectPath: String = ""
     var title: String
@@ -34,13 +38,36 @@ struct Presentation {
 
     static func make(payload: HookPayload) -> Presentation {
         var result = build(payload: payload)
-        result.project = projectName(for: payload.cwd)
-        result.projectPath = abbreviateHome(payload.cwd)
+        let cwd = payload.cwd
+        if let root = repositoryRoot(for: cwd) {
+            result.project = URL(fileURLWithPath: root).lastPathComponent
+            let inside = String(cwd.dropFirst(root.count)).trimmingCharacters(
+                in: CharacterSet(charactersIn: "/"))
+            result.location = inside.isEmpty ? nil : inside
+        } else {
+            result.project = folderName(for: cwd)
+        }
+        result.projectPath = abbreviateHome(cwd)
         return result
     }
 
-    /// The directory name is what people actually call the project.
-    private static func projectName(for cwd: String) -> String {
+    /// Nearest ancestor holding a `.git` — a file for worktrees and submodules,
+    /// a directory otherwise, so existence is what is checked.
+    private static func repositoryRoot(for cwd: String) -> String? {
+        var current = URL(fileURLWithPath: cwd).standardizedFileURL
+        while current.path != "/" && !current.path.isEmpty {
+            if FileManager.default.fileExists(
+                atPath: current.appendingPathComponent(".git").path) {
+                return current.path
+            }
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path { break }
+            current = parent
+        }
+        return nil
+    }
+
+    private static func folderName(for cwd: String) -> String {
         let name = URL(fileURLWithPath: cwd).lastPathComponent
         return name.isEmpty || name == "/" ? abbreviateHome(cwd) : name
     }

@@ -198,6 +198,17 @@ struct PromptCard: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(palette.text)
                         .lineLimit(1)
+                        .layoutPriority(2)
+                    if let location = p.location {
+                        Text("›")
+                            .font(.system(size: 11))
+                            .foregroundStyle(palette.faint)
+                        Text(location)
+                            .font(.system(size: 11))
+                            .foregroundStyle(palette.muted)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
                     if let subtitle = p.subtitle, !subtitle.isEmpty {
                         Text("·")
                             .font(.system(size: 11))

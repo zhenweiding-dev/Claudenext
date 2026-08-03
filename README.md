@@ -28,7 +28,8 @@ terminal. Parallel sessions all show up at once, answerable in any order.
 macOS 14+ and the Swift toolchain (`xcode-select --install`).
 
 > Days old, little real mileage, and it sits on the path of every tool call
-> Claude Code makes. Read the four points below before installing.
+> Claude Code makes. Read the five points below before installing — the first
+> one changes something you are used to.
 
 ## Install
 
@@ -45,7 +46,17 @@ so it starts with you. Restart open Claude Code sessions afterwards.
 `./uninstall.sh` undoes all four. Your rules stay, because they were always
 yours — see below.
 
-## Four things to know
+## Five things to know
+
+**It replaces the prompt you are used to — including the Claude desktop app's.**
+This is the surprising one. A `PreToolUse` hook either decides a call or defers
+it, so it cannot sit beside the host's own prompt: wherever ClaudeNext answers,
+the prompt you used to see never appears. In the desktop app that means the
+inline permission card stops showing up and the menu bar panel takes its place.
+Nothing is broken; the question moved. Per call, **Skip** hands one back to the
+host's own prompt. For good, add the host to `ignoreEntrypoints` — but then the
+panel never sees that host's calls at all, which for most people means the tool
+does nothing.
 
 **The hook is global.** One entry in `~/.claude/settings.json` covers every
 session in every directory. A project can only narrow what it asks about, not
@@ -79,6 +90,14 @@ Every waiting request is on screen at once; one is focused and owns the
 keyboard, and the others hide their key hints. Long diffs and file contents are
 folded to a few lines with a `+12 −3` summary, expanding on click. Clicking away
 parks a request rather than answering it.
+
+A card names the git repository it came from, plus where inside it the session
+sits — `big-monorepo › packages/api-server`, since three directories in a
+monorepo are all called `src`.
+
+The panel can open itself (`autoOpenOnRequest`) without taking the keyboard, so
+it will not interrupt what you are typing. Opening it yourself always focuses
+it.
 
 ## Rules
 
@@ -146,11 +165,6 @@ whole directory.
 - **Claude Code's matcher is looser than ours**, so a rule may permit slightly
   more when ClaudeNext is not running.
 - **Allow is not a sandbox.** The tool then runs with everything you can do.
-- **The panel replaces the host's own prompt, it cannot sit beside it.** A hook
-  either decides a call or defers it, so wherever ClaudeNext answers, Claude
-  Code's own prompt never appears — including the desktop app's inline one.
-  `ignoreEntrypoints` (matched against `CLAUDE_CODE_ENTRYPOINT`) opts a host out
-  entirely, which means the panel never sees its calls at all.
 - Ad-hoc signed, so Gatekeeper may want a one-time approval.
 
 ## Development
