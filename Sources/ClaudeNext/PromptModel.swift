@@ -76,11 +76,10 @@ final class PromptModel: ObservableObject {
         }
         pending.append(request)
         if focusedID == nil { focusedID = request.id }
+        // Re-read rather than trusting the cache: the file may have been
+        // edited by hand, or by another checkout of the same project.
         let cwd = request.payload.cwd
-        if projectIntercept[cwd] == nil,
-           let override = ProjectScope.load(cwd: cwd).intercept {
-            projectIntercept[cwd] = override
-        }
+        projectIntercept[cwd] = ProjectScope.load(cwd: cwd).intercept
         onQueueChange?()
         onNewRequest?()
     }

@@ -50,8 +50,11 @@ struct ProjectScope {
 
         let target = url(for: cwd)
         var object: [String: Any] = [:]
-        if let data = try? Data(contentsOf: target),
-           let existing = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+        if let data = try? Data(contentsOf: target) {
+            // Present but unreadable: leave it alone rather than replacing
+            // someone's hand-edited file with just our key.
+            guard let existing = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            else { return }
             object = existing
         }
         change(&object)

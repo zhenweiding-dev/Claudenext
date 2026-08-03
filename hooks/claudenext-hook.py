@@ -79,6 +79,21 @@ def load_json(path, fallback):
         return fallback
 
 
+def read_object(path):
+    """`(data, usable)`. `usable` is False when the file exists but will not
+    parse — the caller must not overwrite it, or a stray comma in the user's
+    settings would cost them every other key in it.
+    """
+    if not os.path.exists(path):
+        return {}, True
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}, False
+    return (data, True) if isinstance(data, dict) else ({}, False)
+
+
 def load_config():
     cfg = dict(DEFAULT_CONFIG)
     cfg.update(load_json(CONFIG_PATH, {}))
@@ -138,7 +153,9 @@ def save_rule(cwd, rule, bucket):
     with open(lock_path, "a+") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
-            data = load_json(path, {})
+            data, usable = read_object(path)
+            if not usable:
+                raise ValueError(f"{path} is not valid JSON; refusing to overwrite it")
             perms = data.get("permissions")
             if not isinstance(perms, dict):
                 perms = {}
@@ -334,13 +351,19 @@ def passthrough():
     sys.exit(0)
 
 
+# install.sh registers the hook with a 300s timeout; waiting past that just
+# gets this process killed mid-request with nothing to show for it.
+MAX_WAIT = 290
+
+
 def ask_app(cfg, payload):
     url = f"http://127.0.0.1:{int(cfg['port'])}/ask"
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         url, data=body, headers={"Content-Type": "application/json"}, method="POST"
     )
-    with urllib.request.urlopen(request, timeout=float(cfg["timeout"])) as response:
+    wait = min(float(cfg["timeout"]), MAX_WAIT)
+    with urllib.request.urlopen(request, timeout=wait) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -414,7 +437,7 @@ def main():
             try:
                 path = save_rule(cwd, rule, "allow")
                 reason = f"Approved in ClaudeNext; saved {rule} to {path}"
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 reason = f"Approved in ClaudeNext (could not save rule: {exc})"
         if message:
             reason += f" — {message}"
@@ -426,8 +449,8 @@ def main():
             try:
                 save_rule(cwd, rule, "deny")
                 reason += f" (saved deny rule {rule})"
-            except OSError:
-                pass
+            except (OSError, ValueError) as exc:
+                reason += f" (could not save deny rule: {exc})"
         emit("deny", reason)
 
     passthrough()

@@ -188,6 +188,20 @@ check("a repo deny cannot be clicked away",
 os.remove(cc_settings)
 write_config(PORT)
 
+# 10b. A settings file that will not parse must be left strictly alone.
+#      It is the user's own file and holds far more than permissions.
+broken = '{\n  "model": "opus",\n  "env": {"FOO": "bar"},\n  "permissions": {"allow": ["Bash(ls:*)"]},\n}\n'
+open(settings_path, "w").write(broken)
+reply = {"decision": "allow", "remember": True}
+rc, out, err = run("Bash", {"command": "npm run something"})
+check("a malformed settings file is not rewritten",
+      open(settings_path).read() == broken, open(settings_path).read()[:80])
+check("the call is still answered", out and out["permissionDecision"] == "allow", out)
+check("and the failure is reported back to Claude",
+      out and "could not save" in out["permissionDecisionReason"], out)
+os.remove(settings_path)
+write_config(PORT)
+
 # 11. Exactly one rule source: files of our own grant nothing.
 os.makedirs(os.path.join(HOME, ".claudenext"), exist_ok=True)
 json.dump({"allow": ["Bash(echo:*)"], "deny": []},

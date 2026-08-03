@@ -61,10 +61,14 @@ struct AppConfig: Equatable {
     }
 
     /// Read-modify-write, so keys added by hand survive a change made in the UI.
-    func save() {
+    /// A file that exists but will not parse is left untouched — overwriting it
+    /// would silently discard whatever else the user put there.
+    @discardableResult
+    func save() -> Bool {
         var object: [String: Any] = [:]
-        if let data = try? Data(contentsOf: Self.configURL),
-           let existing = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+        if let data = try? Data(contentsOf: Self.configURL) {
+            guard let existing = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            else { return false }
             object = existing
         }
         object["port"] = Int(port)
@@ -78,11 +82,12 @@ struct AppConfig: Equatable {
 
         guard let data = try? JSONSerialization.data(
             withJSONObject: object, options: [.prettyPrinted, .sortedKeys]
-        ) else { return }
+        ) else { return false }
 
         try? FileManager.default.createDirectory(at: Self.supportDirectory,
                                                  withIntermediateDirectories: true)
         atomicWrite(data + Data("\n".utf8), to: Self.configURL)
+        return true
     }
 
     func intercepts(_ tool: String) -> Bool {
