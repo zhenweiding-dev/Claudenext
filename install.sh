@@ -21,21 +21,6 @@ echo "==> Installing hook to $HOOK"
 cp "hooks/claudenext-hook.py" "$HOOK"
 chmod +x "$HOOK"
 
-if [ ! -f "$SUPPORT/config.json" ]; then
-  cat > "$SUPPORT/config.json" <<'JSON'
-{
-  "port": 4471,
-  "sound": true,
-  "focusOnRequest": true,
-  "rememberScope": "project",
-  "intercept": ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "mcp__*"],
-  "ignore": [],
-  "timeout": 280
-}
-JSON
-  echo "    wrote default config"
-fi
-
 echo "==> Registering PreToolUse hook in $SETTINGS"
 mkdir -p "$(dirname "$SETTINGS")"
 HOOK_PATH="$HOOK" python3 - "$SETTINGS" <<'PY'

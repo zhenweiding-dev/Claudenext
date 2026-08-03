@@ -47,7 +47,9 @@ cd Claudenext
 
 That builds the app into `~/Applications/ClaudeNext.app`, copies the hook to
 `~/.claudenext/`, registers it as a `PreToolUse` hook in
-`~/.claude/settings.json`, installs a login agent, and starts it.
+`~/.claude/settings.json`, installs a login agent, and starts it. It does not
+write a config file — both programs fall back to the same built-in defaults
+until you change something.
 
 Restart any running Claude Code session afterwards so it reloads the hook.
 
@@ -235,7 +237,8 @@ Bound to loopback only. `/status` is handy for a statusline.
 ## Development
 
 ```bash
-./run-tests.sh   # swift build + config round-trip + rules + hook integration + concurrency
+./run-tests.sh   # build, config round-trip, defaults agreement, rule matching,
+                 # hook integration, cross-process concurrency
 ./build.sh       # dist/ClaudeNext.app, ad-hoc signed, icon generated from source
 ```
 
@@ -261,6 +264,12 @@ tests/                 config round-trip, rule unit tests, hook integration,
 `tests/test_integration.py` runs the real hook against a stubbed app, so the
 offline and malformed-input paths are covered — those are the ones that must
 never turn into a silent allow.
+
+The app and the hook share one config file and each falls back to its own
+defaults for anything missing from it, so `tests/dump_defaults.swift` writes a
+pristine `AppConfig` and the suite diffs it against the hook's
+`DEFAULT_CONFIG`. Drift there is silent and can fail toward the panel claiming
+a tool is reviewed while the hook waves it through.
 
 ## Notes
 

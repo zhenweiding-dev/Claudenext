@@ -14,6 +14,27 @@ swiftc -O Sources/ClaudeNext/AppConfig.swift Sources/ClaudeNext/ProjectScope.swi
   -o "$WORK/config_roundtrip" 2>&1 | grep -v "^$" || true
 CLAUDENEXT_HOME="$WORK/support" "$WORK/config_roundtrip"
 
+echo "==> defaults agree between the app and the hook"
+swiftc -O Sources/ClaudeNext/AppConfig.swift Sources/ClaudeNext/ProjectScope.swift \
+  tests/dump_defaults.swift -o "$WORK/dump_defaults" 2>&1 | grep -v "^$" || true
+CLAUDENEXT_HOME="$WORK/defaults" "$WORK/dump_defaults" >/dev/null
+python3 - "$WORK/defaults/config.json" <<'DEFAULTSPY'
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("hook", "hooks/claudenext-hook.py")
+hook = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hook)
+app = json.load(open(sys.argv[1]))
+mismatches = [
+    f"{key}: app={app[key]!r} hook={value!r}"
+    for key, value in hook.DEFAULT_CONFIG.items()
+    if key in app and app[key] != value
+]
+missing = [k for k in hook.DEFAULT_CONFIG if k not in app]
+assert not mismatches, "defaults disagree -> " + "; ".join(mismatches)
+assert not missing, f"the app never writes these hook keys: {missing}"
+print(f"defaults: all pass ({len(hook.DEFAULT_CONFIG)} shared keys agree)")
+DEFAULTSPY
+
 echo "==> tests/test_rules.py"
 python3 tests/test_rules.py
 
