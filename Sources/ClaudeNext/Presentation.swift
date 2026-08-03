@@ -39,10 +39,17 @@ struct Presentation {
     static func make(payload: HookPayload) -> Presentation {
         var result = build(payload: payload)
         let cwd = payload.cwd
+        // Both sides have to be standardised before slicing: on macOS
+        // `standardizedFileURL` drops the `/private` prefix, so measuring a raw
+        // cwd against a standardised root cut at the wrong offset and left the
+        // repository name repeated as its own subpath.
+        let standardCwd = URL(fileURLWithPath: cwd).standardizedFileURL.path
         if let root = repositoryRoot(for: cwd) {
             result.project = URL(fileURLWithPath: root).lastPathComponent
-            let inside = String(cwd.dropFirst(root.count)).trimmingCharacters(
-                in: CharacterSet(charactersIn: "/"))
+            let inside = standardCwd.hasPrefix(root)
+                ? String(standardCwd.dropFirst(root.count))
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                : ""
             result.location = inside.isEmpty ? nil : inside
         } else {
             result.project = folderName(for: cwd)

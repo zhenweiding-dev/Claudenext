@@ -12,28 +12,24 @@ sitting there ever since, in a terminal I wasn't looking at.
 With two or three sessions going it gets worse. They all stall, all waiting on
 me, all invisible.
 
-So I vibe-coded this over a couple of days. The question comes to the menu bar
+So I vibe-coded this over a couple of hours. The question comes to the menu bar
 now, every waiting session shows up at once, and I can answer them in any order
 without hunting for the right window. Sharing it in case you have the same
 problem.
 
-```
-       ✳ 2  ← a spark, a count, and a pulse that fades out
-  ┌──────────────────────────────────────────────┐
-  │ ● 2 requests waiting        ⌃ ⌄     [Pause]  │
-  ├──────────────────────────────────────────────┤
-  │ ┌──────────────────────────────────────────┐ │
-  │ │ Claude wants to run a command     [Bash] │ │
-  │ │ 📁 big-monorepo › packages/api-server    │ │
-  │ │ ┌──────────────────────────────────────┐ │ │
-  │ │ │ npm run migrate:latest               │ │ │
-  │ │ └──────────────────────────────────────┘ │ │
-  │ │ ┌ Tell Claude what to do differently… ┐  │ │
-  │ │ [Deny esc]   [Always allow ⌘A][Allow ↩]  │ │
-  │ └──────────────────────────────────────────┘ │
-  │  … the other one …                           │
-  └──────────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="docs/screenshots/stacked.png" width="470" alt="Four requests stacked in the panel: a Bash command, a file edit with a folded diff, and two more behind them.">
+</p>
+
+Every waiting session, in one place. The card names the repo it came from —
+`acme-platform › services/billing-api` — because in a monorepo three different
+directories are all called `src`.
+
+<p align="center">
+  <img src="docs/screenshots/mcp.png" width="420" alt="A single MCP request showing the tool's arguments as a field table, with Deny, Skip, Always allow and Allow.">
+  <img src="docs/screenshots/idle-dark.png" width="420" alt="The idle panel in dark mode, listing recent decisions above the settings.">
+</p>
+
 
 ## Getting it
 
@@ -89,6 +85,13 @@ editing `src/index.ts` in different projects don't look identical.
 By default it won't pop open or steal your keyboard — the count and a short
 pulse are the whole notification. If you'd rather it opened itself, there's a
 toggle for that.
+
+Click the menu bar icon any time to see what you've answered recently and flip
+those switches:
+
+<p align="center">
+  <img src="docs/screenshots/idle-light.png" width="420" alt="The idle panel: recent decisions, then three toggles for sound, opening automatically, and hiding the icon.">
+</p>
 
 ### When you press Always allow
 

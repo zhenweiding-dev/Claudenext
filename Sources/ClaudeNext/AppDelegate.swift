@@ -265,6 +265,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
 
+    func windowDidBecomeKey(_ notification: Notification) {
+        // Clicking an unfocused panel makes it key, and AppKit then hands the
+        // first responder to whichever control it finds first — putting a focus
+        // ring on Pause. Clearing on open was not enough.
+        clearInitialFocus()
+    }
+
     func windowDidResignKey(_ notification: Notification) {
         // Clicking away parks the request; the badge keeps it discoverable.
         hidePanel()
