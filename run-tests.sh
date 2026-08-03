@@ -10,7 +10,7 @@ swift build -c release >/dev/null
 echo "==> tests/config_roundtrip.swift"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-swiftc -O Sources/ClaudeNext/AppConfig.swift tests/config_roundtrip.swift \
+swiftc -O Sources/ClaudeNext/AppConfig.swift Sources/ClaudeNext/ProjectRules.swift tests/config_roundtrip.swift \
   -o "$WORK/config_roundtrip" 2>&1 | grep -v "^$" || true
 CLAUDENEXT_HOME="$WORK/support" "$WORK/config_roundtrip"
 

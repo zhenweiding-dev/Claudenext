@@ -55,6 +55,10 @@ SUBCOMMAND_TOOLS = {
 
 SHELL_OPERATORS = re.compile(r"[|&;><$`\n]|\$\(")
 
+# Anything that can bolt a second command onto the first. A wildcard rule is
+# refused against a command containing one of these; see rule_matches.
+CHAINING = re.compile(r"[;&|<>`\n]|\$\(")
+
 FILE_PATH_KEYS = ("file_path", "notebook_path", "path", "filePath")
 
 
@@ -198,19 +202,29 @@ def normalize_command(command):
 
 
 def candidate_paths(raw_path, cwd):
-    """A path expressed the several ways a rule might spell it."""
+    """A path expressed the several ways a rule might spell it.
+
+    Everything is normalised first and anything still containing a `..` segment
+    is dropped. Without that, `Edit(src/**)` would match
+    `<cwd>/src/../../../etc/passwd`, because `*` spans separators and the raw
+    spelling was compared as-is.
+    """
     if not raw_path:
         return []
     expanded = os.path.expanduser(raw_path)
-    absolute = expanded if os.path.isabs(expanded) else os.path.normpath(os.path.join(cwd, expanded))
+    if os.path.isabs(expanded):
+        absolute = os.path.normpath(expanded)
+    else:
+        absolute = os.path.normpath(os.path.join(cwd, expanded))
+
     out = [absolute]
     if absolute.startswith(cwd + os.sep):
         out.append(absolute[len(cwd) + 1:])
     home = os.path.expanduser("~")
     if absolute.startswith(home + os.sep):
         out.append("~/" + absolute[len(home) + 1:])
-    out.append(raw_path)
-    return out
+    out.append(os.path.normpath(raw_path))
+    return [p for p in out if ".." not in p.split(os.sep)]
 
 
 def input_path(tool_input):
@@ -233,6 +247,12 @@ def rule_matches(rule, tool_name, tool_input, cwd):
     if tool_name == "Bash":
         command = normalize_command(str(tool_input.get("command", "")))
         target = normalize_command(arg)
+        # A wildcard rule must never span a chained command: `Bash(git status:*)`
+        # is a statement about `git status`, not about
+        # `git status && rm -rf ~`. Only a rule that spells the command out in
+        # full may match one containing shell plumbing.
+        if "*" in target and CHAINING.search(command):
+            return False
         if target.endswith(":*"):
             prefix = target[:-2].strip()
             return command == prefix or command.startswith(prefix + " ")

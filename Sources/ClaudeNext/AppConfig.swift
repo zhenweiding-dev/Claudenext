@@ -82,14 +82,7 @@ struct AppConfig: Equatable {
 
         try? FileManager.default.createDirectory(at: Self.supportDirectory,
                                                  withIntermediateDirectories: true)
-        let temporary = Self.configURL.appendingPathExtension("tmp")
-        do {
-            try (data + Data("\n".utf8)).write(to: temporary, options: .atomic)
-            _ = try? FileManager.default.removeItem(at: Self.configURL)
-            try FileManager.default.moveItem(at: temporary, to: Self.configURL)
-        } catch {
-            try? FileManager.default.removeItem(at: temporary)
-        }
+        atomicWrite(data + Data("\n".utf8), to: Self.configURL)
     }
 
     func intercepts(_ tool: String) -> Bool {

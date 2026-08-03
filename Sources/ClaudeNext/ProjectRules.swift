@@ -67,14 +67,27 @@ struct ProjectRules {
             withJSONObject: object, options: [.prettyPrinted, .sortedKeys]
         ) else { return }
 
-        let temporary = target.appendingPathExtension("tmp")
-        do {
-            try (data + Data("\n".utf8)).write(to: temporary, options: .atomic)
-            _ = try? FileManager.default.removeItem(at: target)
+        atomicWrite(data + Data("\n".utf8), to: target)
+    }
+}
+
+/// Replace a file's contents without ever leaving it missing.
+///
+/// `removeItem` followed by `moveItem` has a window where a reader — the hook
+/// runs on every tool call — sees no file at all and falls back to defaults.
+func atomicWrite(_ data: Data, to target: URL) {
+    let temporary = target
+        .deletingLastPathComponent()
+        .appendingPathComponent(".\(target.lastPathComponent).\(getpid()).tmp")
+    do {
+        try data.write(to: temporary, options: .atomic)
+        if FileManager.default.fileExists(atPath: target.path) {
+            _ = try FileManager.default.replaceItemAt(target, withItemAt: temporary)
+        } else {
             try FileManager.default.moveItem(at: temporary, to: target)
-        } catch {
-            try? FileManager.default.removeItem(at: temporary)
         }
+    } catch {
+        try? FileManager.default.removeItem(at: temporary)
     }
 }
 
