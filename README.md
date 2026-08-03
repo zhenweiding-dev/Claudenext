@@ -37,6 +37,12 @@ is, and parallel sessions all show up at once.
 
 Requires macOS 14+ and the Swift toolchain (`xcode-select --install`).
 
+> **New and lightly used.** This works and the safety-critical behaviour is
+> tested, but it is days old and has little real mileage. It sits on the path
+> of every tool call Claude Code makes, so read
+> [What installing this changes](#what-installing-this-changes) before you
+> install it, not after.
+
 ## Install
 
 ```bash
@@ -54,6 +60,61 @@ until you change something.
 Restart any running Claude Code session afterwards so it reloads the hook.
 
 `./uninstall.sh` reverses all of it and leaves your rules alone.
+
+## What installing this changes
+
+Four things, all reversible with `./uninstall.sh`:
+
+| | |
+|---|---|
+| `~/.claude/settings.json` | gains one `PreToolUse` hook entry. Every other key and hook is left alone, and re-running the installer rewrites only its own entry. |
+| `~/Applications/ClaudeNext.app` | the menu bar app. |
+| `~/Library/LaunchAgents/` | a login agent, so it starts with you. |
+| `~/.claudenext/` | the hook script and, once you change a setting, `config.json`. |
+
+Then, while it runs, **`<project>/.claude/settings.local.json` gains a rule
+every time you press Always allow.** That is your own Claude Code config, not a
+file of ours — see [Rules](#rules).
+
+Three implications worth understanding before you rely on it:
+
+**The hook is global.** It is registered once in `~/.claude/settings.json`, so
+it applies to every Claude Code session in every directory, not just this
+project. There is no per-project opt-in — a project opts *out* by narrowing
+what it asks about.
+
+**A hook answering `allow` skips Claude Code's own permission check.** That is
+what makes this able to replace the terminal prompt, and it is also the whole
+risk: a rule that matches more than you meant grants more than you meant, with
+no second gate behind it. Two matcher rules exist because of this, and they are
+[stricter than you may expect](#rules).
+
+**If ClaudeNext is not running, nothing is granted.** The hook prints nothing
+and Claude Code prompts in the terminal exactly as it would without any of
+this. Every failure path — app closed, port taken, timeout, malformed input,
+unreadable settings file — resolves to silence rather than approval. That is
+the one invariant the design refuses to trade away.
+
+## Design
+
+Three rules the code holds to. They explain most of what would otherwise look
+like missing features.
+
+**Fail closed, always.** Silence is the fallback for every error. There is no
+configuration that makes an error resolve to "allow".
+
+**No switch may weaken a permission decision.** Settings cover presentation —
+sound, whether the panel opens itself, whether the icon hides. Two earlier
+switches were removed for breaking this rule: one let remembered rules be
+stored globally, where a project-relative path silently authorised the same
+path in every other repo; the other disabled reading the repo's permissions,
+which let one click override a `deny` the repo had declared. A preference that
+turns off a check is not a preference.
+
+**One rule source, and it is yours.** ClaudeNext keeps no permission store of
+its own. Rules are read from, and written to, the Claude Code permission lists
+you already have, so they work with or without this installed and there is one
+place to look when you want to know why something was allowed.
 
 ## Running it
 
@@ -87,9 +148,6 @@ Claude Code fires a `PreToolUse` hook before every tool call.
    open, and that is what blocks Claude Code until you answer.
 6. **App not running, or you never answered** → prints nothing, Claude Code
    prompts as usual.
-
-The fallback is always silence, never approval. If ClaudeNext is closed, wedged,
-or times out, you get the normal terminal prompt — it cannot fail open.
 
 ## Controls
 
@@ -271,10 +329,36 @@ pristine `AppConfig` and the suite diffs it against the hook's
 `DEFAULT_CONFIG`. Drift there is silent and can fail toward the panel claiming
 a tool is reviewed while the hook waves it through.
 
+## Security model
+
+What it defends against: a tool call running before you have seen it. That is
+the whole of it.
+
+What it does not defend against, stated plainly:
+
+- **Any process running as you can talk to it.** The server listens on
+  `127.0.0.1:4471` with no authentication, so a local process can make the
+  panel display whatever it likes, or read `/status` to see what Claude is
+  doing. A token would be theatre — anything that can reach the loopback port
+  can also read the file the token would live in. The real boundary is that the
+  port is not reachable off the machine.
+- **Claude Code writes `settings.local.json` too.** ClaudeNext's writes take an
+  exclusive lock that Claude Code does not know about, so a simultaneous write
+  from both could lose one change. The file is never left unreadable, and an
+  unreadable file is never overwritten.
+- **Claude Code interprets the rules it stores.** A rule written from the panel
+  is matched by ClaudeNext's matcher while it runs, and by Claude Code's when it
+  does not. ClaudeNext's is the stricter of the two, so a rule may permit
+  slightly more with ClaudeNext off than with it on.
+- **It is not a sandbox.** Once you press Allow, the tool runs with everything
+  you can do.
+
 ## Notes
 
 - The app is ad-hoc signed. Gatekeeper may want a one-time approval in System
   Settings → Privacy & Security.
 - Hooks are a Claude Code feature, so this covers the CLI. It does not intercept
   prompts in the desktop or web apps.
-- Nothing leaves your machine; the server only listens on `127.0.0.1`.
+- Nothing leaves your machine.
+- Uninstalling leaves your rules behind, because they were always yours: they
+  live in `.claude/settings.local.json` and Claude Code keeps honouring them.
