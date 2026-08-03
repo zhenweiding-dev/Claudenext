@@ -72,11 +72,13 @@ somewhere of ours.
 | `⌥` + Deny | Always deny |
 | Type a message, then `↩` | Deny, and send Claude the text as the reason |
 | `⌘↑` `⌘↓` | Move between stacked requests |
+| Skip | Hand this one back to Claude Code's own prompt |
 | Right-click the icon | Pause, open rules, open config, quit |
 
 Every waiting request is on screen at once; one is focused and owns the
-keyboard, and the others hide their key hints. Clicking away parks a request
-rather than answering it.
+keyboard, and the others hide their key hints. Long diffs and file contents are
+folded to a few lines with a `+12 −3` summary, expanding on click. Clicking away
+parks a request rather than answering it.
 
 ## Rules
 
@@ -96,9 +98,11 @@ One source: your own Claude Code permissions. Read from
 
 Two limits are deliberate, because a rule must mean only what it says:
 
-- A wildcard rule never matches a command containing `;` `&` `|` `<` `>`
-  backtick or `$(`. `Bash(git status:*)` permits `git status`, not
-  `git status && rm -rf ~`. Spell a chained command out in full to allow one.
+- A command line is split into the commands it actually runs, and **every one**
+  needs a rule. `swift build … | tail -1` needs rules for both halves;
+  `git status && rm -rf ~` is refused on the second. Deny works the other way —
+  one match anywhere blocks the line. Command substitution (`` ` ``, `$(`) is
+  never covered, since no rule can speak for text that does not exist yet.
 - Paths are normalised and `..` is refused, so `Edit(src/**)` cannot be walked
   out of.
 
@@ -121,6 +125,7 @@ when idle. Everything else is `~/.claudenext/config.json`:
   "port": 4471,
   "intercept": ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "mcp__*"],
   "ignore": [],
+  "ignoreEntrypoints": ["claude-desktop"],
   "timeout": 280
 }
 ```
@@ -140,7 +145,10 @@ whole directory.
 - **Claude Code's matcher is looser than ours**, so a rule may permit slightly
   more when ClaudeNext is not running.
 - **Allow is not a sandbox.** The tool then runs with everything you can do.
-- Hooks are a CLI feature; this does not cover the desktop or web apps.
+- The Claude desktop app is left alone by default. Hooks do fire there, but it
+  already shows a prompt inside the conversation, and replacing that with a
+  panel elsewhere is worse than not helping. Controlled by `ignoreEntrypoints`,
+  matched against `CLAUDE_CODE_ENTRYPOINT`.
 - Ad-hoc signed, so Gatekeeper may want a one-time approval.
 
 ## Development

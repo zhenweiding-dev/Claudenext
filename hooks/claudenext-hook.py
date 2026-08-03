@@ -48,6 +48,10 @@ DEFAULT_CONFIG = {
     "ignore": [],
     # Seconds to wait for a human. Keep below the hook timeout in settings.json.
     "timeout": 280,
+    # Hosts that already show their own permission UI. Stepping in front of one
+    # replaces a prompt sitting in the conversation with a panel somewhere else,
+    # which is worse than not helping. Matched against CLAUDE_CODE_ENTRYPOINT.
+    "ignoreEntrypoints": ["claude-desktop"],
 }
 
 # Commands whose second word is meaningful enough to keep in a rule.
@@ -60,9 +64,9 @@ SUBCOMMAND_TOOLS = {
 
 SHELL_OPERATORS = re.compile(r"[|&;><$`\n]|\$\(")
 
-# Anything that can bolt a second command onto the first. A wildcard rule is
-# refused against a command containing one of these; see rule_matches.
-CHAINING = re.compile(r"[;&|<>`\n]|\$\(")
+# Command substitution: the text it produces is unknowable, so no rule can
+# honestly claim to cover it.
+SUBSTITUTION = re.compile(r"`|\$\(")
 
 FILE_PATH_KEYS = ("file_path", "notebook_path", "path", "filePath")
 
@@ -193,6 +197,41 @@ def normalize_command(command):
     return " ".join(command.split())
 
 
+def split_command(command):
+    """Break a command line into the separate commands it runs.
+
+    `a && b | c` is three commands, and a rule may only speak for the one it
+    names — otherwise `Bash(git status:*)` would cover `git status && rm -rf ~`.
+    Operators inside quotes are text, not plumbing, so quote state is tracked.
+    """
+    parts, current, quote, i = [], [], None, 0
+    while i < len(command):
+        char = command[i]
+        if quote:
+            current.append(char)
+            if char == quote:
+                quote = None
+            elif char == "\\" and quote == '"' and i + 1 < len(command):
+                i += 1
+                current.append(command[i])
+            i += 1
+            continue
+        if char in "'\"":
+            quote = char
+            current.append(char)
+            i += 1
+            continue
+        two = command[i:i + 2]
+        if two in ("&&", "||"):
+            parts.append("".join(current)); current = []; i += 2; continue
+        if char in ";|\n":
+            parts.append("".join(current)); current = []; i += 1; continue
+        current.append(char)
+        i += 1
+    parts.append("".join(current))
+    return [normalize_command(p) for p in parts if p.strip()]
+
+
 def candidate_paths(raw_path, cwd):
     """A path expressed the several ways a rule might spell it.
 
@@ -237,14 +276,10 @@ def rule_matches(rule, tool_name, tool_input, cwd):
         return True
 
     if tool_name == "Bash":
+        # One command only; splitting a line into its commands is the caller's
+        # job, because allow and deny need opposite answers about a line.
         command = normalize_command(str(tool_input.get("command", "")))
         target = normalize_command(arg)
-        # A wildcard rule must never span a chained command: `Bash(git status:*)`
-        # is a statement about `git status`, not about
-        # `git status && rm -rf ~`. Only a rule that spells the command out in
-        # full may match one containing shell plumbing.
-        if "*" in target and CHAINING.search(command):
-            return False
         if target.endswith(":*"):
             prefix = target[:-2].strip()
             return command == prefix or command.startswith(prefix + " ")
@@ -261,7 +296,9 @@ def rule_matches(rule, tool_name, tool_input, cwd):
 
     raw = input_path(tool_input)
     if raw:
-        pattern = os.path.expanduser(arg)
+        # Claude Code spells an absolute path rule `//Users/me/**`.
+        pattern = arg[1:] if arg.startswith("//") else arg
+        pattern = os.path.expanduser(pattern)
         for candidate in candidate_paths(raw, cwd):
             if fnmatch.fnmatchcase(candidate, pattern):
                 return True
@@ -274,14 +311,61 @@ def rule_matches(rule, tool_name, tool_input, cwd):
     return False
 
 
+def probes(tool_name, tool_input):
+    """The units a rule is asked about.
+
+    A Bash call may run several commands, and each is judged on its own — so
+    `Bash(rm:*)` denies `ls && rm -rf ~`, and allowing that line needs a rule
+    for `ls` *and* one for `rm`.
+    """
+    if tool_name != "Bash":
+        return [tool_input]
+    command = normalize_command(str(tool_input.get("command", "")))
+    if not command:
+        return [tool_input]
+    return [dict(tool_input, command=part) for part in split_command(command)]
+
+
+def _matches(rule, tool_name, tool_input, cwd):
+    try:
+        return rule_matches(rule, tool_name, tool_input, cwd)
+    except Exception:
+        return False
+
+
 def first_match(rules, tool_name, tool_input, cwd):
+    """Any part of the call matching any rule. Used for deny and ask."""
     for rule in rules:
-        try:
-            if rule_matches(rule, tool_name, tool_input, cwd):
+        for probe in probes(tool_name, tool_input):
+            if _matches(rule, tool_name, probe, cwd):
                 return rule
-        except Exception:
-            continue
     return None
+
+
+def fully_allowed(rules, tool_name, tool_input, cwd):
+    """Every part of the call covered by some rule. Used for allow only.
+
+    Returns a rule to quote in the reason, or None.
+    """
+    command = normalize_command(str(tool_input.get("command", "")))
+    if tool_name == "Bash" and command:
+        # A rule may also name the whole line verbatim, plumbing included.
+        for rule in rules:
+            if _matches(rule, tool_name, tool_input, cwd):
+                name, arg = split_rule(rule)
+                if arg is None or arg in ("", "*") or normalize_command(arg) == command:
+                    return rule
+        # Command substitution produces text no rule can have spoken for.
+        if SUBSTITUTION.search(command):
+            return None
+
+    witness = None
+    for probe in probes(tool_name, tool_input):
+        hit = next((r for r in rules if _matches(r, tool_name, probe, cwd)), None)
+        if hit is None:
+            return None
+        witness = witness or hit
+    return witness
 
 
 # ------------------------------------------------------------- rule suggestion
@@ -390,6 +474,10 @@ def main():
     cfg = load_config()
     cfg.update(project_overrides(cwd))
 
+    entrypoint = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
+    if entrypoint and matches_any(cfg.get("ignoreEntrypoints", []), entrypoint):
+        passthrough()
+
     if not tool_name:
         passthrough()
     if matches_any(cfg.get("ignore", []), tool_name):
@@ -407,7 +495,7 @@ def main():
 
     # An explicit "ask" outranks any allow, so fall through to the panel.
     if not first_match(ask_rules, tool_name, tool_input, cwd):
-        hit = first_match(allow_rules, tool_name, tool_input, cwd)
+        hit = fully_allowed(allow_rules, tool_name, tool_input, cwd)
         if hit:
             emit("allow", f"Already allowed by your rule {hit}")
 

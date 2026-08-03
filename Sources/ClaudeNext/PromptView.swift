@@ -140,6 +140,7 @@ struct PromptCard: View {
     @Environment(\.palette) private var palette
     @State private var message: String = ""
     @State private var askAboutExpanded = false
+    @State private var contentExpanded = false
     @FocusState private var messageFocused: Bool
 
     private var p: Presentation { request.presentation }
@@ -242,20 +243,75 @@ struct PromptCard: View {
         }
     }
 
+    /// Long diffs and file contents start folded — a card you have to scroll
+    /// past to reach the buttons is worse than one that shows less.
+    private static let foldOver = 8
+    private static let foldTo = 3
+
+    private var contentLines: Int {
+        p.blocks.reduce(0) { total, block in
+            switch block {
+            case .code(let text): return total + text.components(separatedBy: "\n").count
+            case .diff(let removed, let added): return total + removed.count + added.count
+            case .note, .field: return total + 1
+            }
+        }
+    }
+
+    private var isFolded: Bool { contentLines > Self.foldOver && !contentExpanded }
+
     private var blocks: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(p.blocks) { block in
-                blockView(block)
+            ForEach(isFolded ? p.blocks.map { Self.shorten($0, to: Self.foldTo) } : p.blocks) {
+                blockView($0)
             }
             if p.blocks.isEmpty {
                 Text("No additional details.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(palette.faint)
             }
+            if contentLines > Self.foldOver {
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { contentExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: contentExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 8, weight: .semibold))
+                        Text(contentExpanded ? "Show less" : "Show all \(changeSummary)")
+                            .font(.system(size: 11))
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(palette.muted)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+
+    private var changeSummary: String {
+        var added = 0, removed = 0
+        for case .diff(let r, let a) in p.blocks { removed += r.count; added += a.count }
+        if added > 0 || removed > 0 { return "+\(added) −\(removed)" }
+        return "· \(contentLines) lines"
+    }
+
+    private static func shorten(_ block: Presentation.Block, to limit: Int) -> Presentation.Block {
+        switch block {
+        case .code(let text):
+            let lines = text.components(separatedBy: "\n")
+            guard lines.count > limit else { return block }
+            return .code(lines.prefix(limit).joined(separator: "\n") + "\n…")
+        case .diff(let removed, let added):
+            let half = max(1, limit / 2)
+            return .diff(removed: Array(removed.prefix(half)),
+                         added: Array(added.prefix(limit - min(half, removed.count))))
+        case .note, .field:
+            return block
+        }
     }
 
     @ViewBuilder
@@ -365,6 +421,15 @@ struct PromptCard: View {
                 .help(model.optionDown && live
                       ? "Remember this as a deny rule"
                       : "Block this call. Anything typed above is sent to Claude as the reason.")
+
+                Button {
+                    model.resolve(request, with: PromptDecision(decision: .pass))
+                } label: {
+                    Text("Skip")
+                }
+                .buttonStyle(ActionButtonStyle(variant: .quiet, palette: palette,
+                                               tint: palette.faint))
+                .help("Leave this one to Claude Code's own prompt")
 
                 Spacer(minLength: 0)
 

@@ -53,7 +53,7 @@ def write_config(port, timeout=10):
         json.dump({"port": port, "timeout": timeout}, fh)
 
 
-def run(tool, tool_input, event="PreToolUse", raw=None):
+def run(tool, tool_input, event="PreToolUse", raw=None, entrypoint="cli"):
     payload = raw if raw is not None else json.dumps({
         "hook_event_name": event,
         "tool_name": tool,
@@ -61,8 +61,11 @@ def run(tool, tool_input, event="PreToolUse", raw=None):
         "cwd": PROJ,
         "session_id": "test",
     })
+    # Pin the entrypoint: this suite may itself be run from a host that the
+    # hook is configured to step aside for.
+    env = dict(os.environ, HOME=HOME, CLAUDE_CODE_ENTRYPOINT=entrypoint)
     proc = subprocess.run([sys.executable, HOOK], input=payload, capture_output=True,
-                          text=True, env=dict(os.environ, HOME=HOME), timeout=30)
+                          text=True, env=env, timeout=30)
     out = proc.stdout.strip()
     decision = json.loads(out)["hookSpecificOutput"] if out else None
     return proc.returncode, decision, proc.stderr
@@ -201,6 +204,14 @@ check("and the failure is reported back to Claude",
       out and "could not save" in out["permissionDecisionReason"], out)
 os.remove(settings_path)
 write_config(PORT)
+
+# 10c. A host with its own permission UI is left to it.
+before = len(seen)
+reply = {"decision": "allow"}
+rc, out, err = run("Bash", {"command": "echo hi"}, entrypoint="claude-desktop")
+check("claude-desktop is not intercepted", out is None and len(seen) == before, out)
+rc, out, err = run("Bash", {"command": "echo hi"}, entrypoint="cli")
+check("the cli still is", len(seen) == before + 1, len(seen))
 
 # 11. Exactly one rule source: files of our own grant nothing.
 os.makedirs(os.path.join(HOME, ".claudenext"), exist_ok=True)

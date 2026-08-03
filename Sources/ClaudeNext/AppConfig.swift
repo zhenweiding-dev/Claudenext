@@ -18,6 +18,9 @@ struct AppConfig: Equatable {
     var intercept: [String] = ["Bash", "Write", "Edit", "MultiEdit",
                                "NotebookEdit", "WebFetch", "mcp__*"]
     var ignore: [String] = []
+    /// Hosts that already show their own permission UI; matched against
+    /// CLAUDE_CODE_ENTRYPOINT by the hook.
+    var ignoreEntrypoints: [String] = ["claude-desktop"]
     /// Seconds the hook waits for an answer.
     var timeout: Double = 280
     /// Optionally keep out of the menu bar until there is something to ask.
@@ -55,6 +58,7 @@ struct AppConfig: Equatable {
         if let v = object["autoOpenOnRequest"] as? Bool { config.autoOpenOnRequest = v }
         if let v = object["intercept"] as? [String] { config.intercept = v }
         if let v = object["ignore"] as? [String] { config.ignore = v }
+        if let v = object["ignoreEntrypoints"] as? [String] { config.ignoreEntrypoints = v }
         if let v = object["timeout"] as? NSNumber { config.timeout = v.doubleValue }
         if let v = object["hideWhenIdle"] as? Bool { config.hideWhenIdle = v }
         return config
@@ -77,6 +81,7 @@ struct AppConfig: Equatable {
         object["autoOpenOnRequest"] = autoOpenOnRequest
         object["intercept"] = intercept
         object["ignore"] = ignore
+        object["ignoreEntrypoints"] = ignoreEntrypoints
         object["timeout"] = timeout
         object["hideWhenIdle"] = hideWhenIdle
 
