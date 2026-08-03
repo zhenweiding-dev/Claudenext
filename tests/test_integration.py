@@ -205,13 +205,20 @@ check("and the failure is reported back to Claude",
 os.remove(settings_path)
 write_config(PORT)
 
-# 10c. A host with its own permission UI is left to it.
+# 10c. Every host goes through the panel by default; ignoreEntrypoints opts out.
 before = len(seen)
 reply = {"decision": "allow"}
 rc, out, err = run("Bash", {"command": "echo hi"}, entrypoint="claude-desktop")
-check("claude-desktop is not intercepted", out is None and len(seen) == before, out)
+check("the desktop app is intercepted like anything else",
+      len(seen) == before + 1, len(seen))
+with open(os.path.join(HOME, ".claudenext", "config.json"), "w") as fh:
+    json.dump({"port": PORT, "timeout": 10, "ignoreEntrypoints": ["claude-desktop"]}, fh)
+before = len(seen)
+rc, out, err = run("Bash", {"command": "echo hi"}, entrypoint="claude-desktop")
+check("ignoreEntrypoints steps aside", out is None and len(seen) == before, out)
 rc, out, err = run("Bash", {"command": "echo hi"}, entrypoint="cli")
-check("the cli still is", len(seen) == before + 1, len(seen))
+check("and only for the named host", len(seen) == before + 1, len(seen))
+write_config(PORT)
 
 # 11. Exactly one rule source: files of our own grant nothing.
 os.makedirs(os.path.join(HOME, ".claudenext"), exist_ok=True)

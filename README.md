@@ -118,14 +118,15 @@ tools reach the panel at all — scope, not permission — kept in
 
 Three toggles in the panel: sound, whether the panel opens itself (off by
 default — the count and pulse are the notification), and whether the icon hides
-when idle. Everything else is `~/.claudenext/config.json`:
+when idle. An automatic open never takes the keyboard, so it cannot interrupt
+what you are typing; set `focusOnRequest` if you want it to. Everything else is `~/.claudenext/config.json`:
 
 ```json
 {
   "port": 4471,
   "intercept": ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "mcp__*"],
   "ignore": [],
-  "ignoreEntrypoints": ["claude-desktop"],
+  "ignoreEntrypoints": [],
   "timeout": 280
 }
 ```
@@ -145,10 +146,11 @@ whole directory.
 - **Claude Code's matcher is looser than ours**, so a rule may permit slightly
   more when ClaudeNext is not running.
 - **Allow is not a sandbox.** The tool then runs with everything you can do.
-- The Claude desktop app is left alone by default. Hooks do fire there, but it
-  already shows a prompt inside the conversation, and replacing that with a
-  panel elsewhere is worse than not helping. Controlled by `ignoreEntrypoints`,
-  matched against `CLAUDE_CODE_ENTRYPOINT`.
+- **The panel replaces the host's own prompt, it cannot sit beside it.** A hook
+  either decides a call or defers it, so wherever ClaudeNext answers, Claude
+  Code's own prompt never appears — including the desktop app's inline one.
+  `ignoreEntrypoints` (matched against `CLAUDE_CODE_ENTRYPOINT`) opts a host out
+  entirely, which means the panel never sees its calls at all.
 - Ad-hoc signed, so Gatekeeper may want a one-time approval.
 
 ## Development

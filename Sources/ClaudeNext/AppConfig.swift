@@ -11,16 +11,17 @@ struct AppConfig: Equatable {
     /// Pop the panel open by itself when a request arrives. Off by default —
     /// the count and the pulse are the notification.
     var autoOpenOnRequest: Bool = false
-    /// Whether an automatic open also takes the keyboard. Only consulted when
-    /// `autoOpenOnRequest` is on; opening it yourself always takes focus.
-    var focusOnRequest: Bool = true
+    /// Whether an automatic open also takes the keyboard. Off by default: the
+    /// panel appearing should never interrupt what you are typing. Opening it
+    /// yourself always focuses it.
+    var focusOnRequest: Bool = false
     /// Tool names (fnmatch patterns) routed through the panel.
     var intercept: [String] = ["Bash", "Write", "Edit", "MultiEdit",
                                "NotebookEdit", "WebFetch", "mcp__*"]
     var ignore: [String] = []
-    /// Hosts that already show their own permission UI; matched against
-    /// CLAUDE_CODE_ENTRYPOINT by the hook.
-    var ignoreEntrypoints: [String] = ["claude-desktop"]
+    /// Hosts to stay out of entirely; matched against CLAUDE_CODE_ENTRYPOINT
+    /// by the hook. Empty means every host goes through the panel.
+    var ignoreEntrypoints: [String] = []
     /// Seconds the hook waits for an answer.
     var timeout: Double = 280
     /// Optionally keep out of the menu bar until there is something to ask.

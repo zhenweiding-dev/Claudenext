@@ -87,12 +87,18 @@ pkill -x ClaudeNext 2>/dev/null || true
 launchctl bootout "gui/$UID/com.claudenext.menubar" 2>/dev/null || true
 sleep 1
 launchctl bootstrap "gui/$UID" "$AGENT" 2>/dev/null || launchctl load -w "$AGENT"
+# bootstrap does not always start it, and KeepAlive only covers crashes.
+launchctl kickstart "gui/$UID/com.claudenext.menubar" 2>/dev/null || true
 
-sleep 1
-if curl -fsS --max-time 5 "http://127.0.0.1:4471/health" >/dev/null 2>&1; then
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  curl -fsS --max-time 2 "http://127.0.0.1:4471/health" >/dev/null 2>&1 && break
+  sleep 1
+done
+if curl -fsS --max-time 2 "http://127.0.0.1:4471/health" >/dev/null 2>&1; then
   echo "    running and answering on 127.0.0.1:4471"
 else
-  echo "    started, but the health check did not answer yet"
+  echo "    WARNING: it did not come up. Try:"
+  echo "      launchctl kickstart -k gui/$UID/com.claudenext.menubar"
 fi
 
 cat <<'EOF'

@@ -214,9 +214,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.setFrame(NSRect(x: x, y: anchorTop - size.height, width: size.width, height: size.height),
                        display: true, animate: false)
 
-        if focus { NSApp.activate() }
-        panel.makeKeyAndOrderFront(nil)
-        clearInitialFocus()
+        show(focus: focus)
+    }
+
+    /// Appearing must not interrupt typing, so an unfocused show neither
+    /// activates the app nor makes the panel key — it just becomes visible.
+    /// Clicking it then works normally.
+    private func show(focus: Bool) {
+        if focus {
+            NSApp.activate()
+            panel.makeKeyAndOrderFront(nil)
+            clearInitialFocus()
+        } else {
+            panel.orderFrontRegardless()
+        }
     }
 
     /// AppKit hands the window's first responder to whichever control it finds
@@ -237,9 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                               y: anchorTop - size.height,
                               width: size.width, height: size.height),
                        display: true, animate: false)
-        if focus { NSApp.activate() }
-        panel.makeKeyAndOrderFront(nil)
-        clearInitialFocus()
+        show(focus: focus)
     }
 
     private func hidePanel() {

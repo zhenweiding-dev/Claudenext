@@ -48,10 +48,10 @@ DEFAULT_CONFIG = {
     "ignore": [],
     # Seconds to wait for a human. Keep below the hook timeout in settings.json.
     "timeout": 280,
-    # Hosts that already show their own permission UI. Stepping in front of one
-    # replaces a prompt sitting in the conversation with a panel somewhere else,
-    # which is worse than not helping. Matched against CLAUDE_CODE_ENTRYPOINT.
-    "ignoreEntrypoints": ["claude-desktop"],
+    # Hosts to stay out of entirely, matched against CLAUDE_CODE_ENTRYPOINT.
+    # Empty by default: a hook either decides or defers, so skipping a host
+    # means the panel never sees its calls at all.
+    "ignoreEntrypoints": [],
 }
 
 # Commands whose second word is meaningful enough to keep in a rule.
