@@ -48,6 +48,9 @@ DEFAULT_CONFIG = {
     "ignore": [],
     # Seconds to wait for a human. Keep below the hook timeout in settings.json.
     "timeout": 280,
+    # Modes in which Claude Code would not have asked, so neither do we.
+    # acceptEdits only auto-accepts edits; other tools still get asked.
+    "respectPermissionMode": True,
     # Hosts to stay out of entirely, matched against CLAUDE_CODE_ENTRYPOINT.
     # Empty by default: a hook either decides or defers, so skipping a host
     # means the panel never sees its calls at all.
@@ -69,6 +72,9 @@ SHELL_OPERATORS = re.compile(r"[|&;><$`\n]|\$\(")
 SUBSTITUTION = re.compile(r"`|\$\(")
 
 FILE_PATH_KEYS = ("file_path", "notebook_path", "path", "filePath")
+
+# What `acceptEdits` mode auto-accepts on your behalf.
+EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 
 
 # --------------------------------------------------------------------------- io
@@ -371,17 +377,27 @@ def fully_allowed(rules, tool_name, tool_input, cwd):
 # ------------------------------------------------------------- rule suggestion
 
 
+# Tools whose rule is meaningfully narrowed by an argument. If we cannot read
+# that argument we offer no rule at all, rather than one that would allow every
+# call to the tool.
+SCOPED_TOOLS = {"Bash", "Edit", "MultiEdit", "Write", "NotebookEdit", "Read", "WebFetch"}
+
+
 def suggest_rule(tool_name, tool_input, cwd):
+    """A rule to offer as "always allow", or None when none can be honest."""
     if tool_name == "Bash":
         command = normalize_command(str(tool_input.get("command", "")))
         if not command:
-            return "Bash"
+            return None
+        # The matcher never honours substitution, so a rule for it would lie.
+        if SUBSTITUTION.search(command):
+            return None
         try:
             tokens = shlex.split(command)
         except ValueError:
             tokens = command.split()
         if not tokens:
-            return "Bash"
+            return None
         head = tokens[0]
         # Anything with shell plumbing only gets a single-word prefix.
         if SHELL_OPERATORS.search(command):
@@ -396,7 +412,7 @@ def suggest_rule(tool_name, tool_input, cwd):
         if match:
             host = match.group(1).split("@")[-1].split(":")[0]
             return f"WebFetch(domain:{host})"
-        return "WebFetch"
+        return None
 
     raw = input_path(tool_input)
     if raw:
@@ -409,7 +425,9 @@ def suggest_rule(tool_name, tool_input, cwd):
             return f"{tool_name}({absolute[len(cwd) + 1:]})"
         return f"{tool_name}({absolute})"
 
-    return tool_name
+    # A scoped tool we could not read an argument from: offer nothing rather
+    # than a rule that would cover every call to it.
+    return None if tool_name in SCOPED_TOOLS else tool_name
 
 
 # ------------------------------------------------------------------- decisions
@@ -474,6 +492,13 @@ def main():
     cfg = load_config()
     cfg.update(project_overrides(cwd))
 
+    mode = event.get("permission_mode") or "default"
+    if cfg.get("respectPermissionMode", True):
+        if mode in ("bypassPermissions", "plan"):
+            passthrough()
+        if mode == "acceptEdits" and tool_name in EDIT_TOOLS:
+            passthrough()
+
     entrypoint = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
     if entrypoint and matches_any(cfg.get("ignoreEntrypoints", []), entrypoint):
         passthrough()
@@ -499,7 +524,7 @@ def main():
         if hit:
             emit("allow", f"Already allowed by your rule {hit}")
 
-    rule = suggest_rule(tool_name, tool_input, cwd)
+    rule = suggest_rule(tool_name, tool_input, cwd)  # may be None
     payload = {
         "tool_name": tool_name,
         "tool_input": tool_input,
@@ -521,7 +546,7 @@ def main():
 
     if decision == "allow":
         reason = "Approved in ClaudeNext"
-        if remember:
+        if remember and rule:
             try:
                 path = save_rule(cwd, rule, "allow")
                 reason = f"Approved in ClaudeNext; saved {rule} to {path}"
@@ -533,7 +558,7 @@ def main():
 
     if decision == "deny":
         reason = message or "Denied in ClaudeNext"
-        if remember:
+        if remember and rule:
             try:
                 save_rule(cwd, rule, "deny")
                 reason += f" (saved deny rule {rule})"

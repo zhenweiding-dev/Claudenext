@@ -53,13 +53,15 @@ def write_config(port, timeout=10):
         json.dump({"port": port, "timeout": timeout}, fh)
 
 
-def run(tool, tool_input, event="PreToolUse", raw=None, entrypoint="cli"):
+def run(tool, tool_input, event="PreToolUse", raw=None, entrypoint="cli",
+        mode="default"):
     payload = raw if raw is not None else json.dumps({
         "hook_event_name": event,
         "tool_name": tool,
         "tool_input": tool_input,
         "cwd": PROJ,
         "session_id": "test",
+        "permission_mode": mode,
     })
     # Pin the entrypoint: this suite may itself be run from a host that the
     # hook is configured to step aside for.
@@ -219,6 +221,26 @@ check("ignoreEntrypoints steps aside", out is None and len(seen) == before, out)
 rc, out, err = run("Bash", {"command": "echo hi"}, entrypoint="cli")
 check("and only for the named host", len(seen) == before + 1, len(seen))
 write_config(PORT)
+
+# 10d. Modes Claude Code would have accepted anyway are left alone.
+before = len(seen)
+reply = {"decision": "allow"}
+rc, out, err = run("Bash", {"command": "echo hi"}, mode="bypassPermissions")
+check("bypassPermissions is not intercepted", out is None and len(seen) == before, out)
+rc, out, err = run("Bash", {"command": "echo hi"}, mode="plan")
+check("plan mode is not intercepted", out is None and len(seen) == before, out)
+rc, out, err = run("Edit", {"file_path": os.path.join(PROJ, "src", "a.ts"),
+                            "old_string": "a", "new_string": "b"}, mode="acceptEdits")
+check("acceptEdits skips an edit", out is None and len(seen) == before, out)
+rc, out, err = run("Bash", {"command": "echo hi"}, mode="acceptEdits")
+check("but acceptEdits still asks about Bash", len(seen) == before + 1, len(seen))
+
+# A request we cannot scope must not offer a rule to save.
+before = len(seen)
+rc, out, err = run("Bash", {"command": "$(cat /etc/passwd)"})
+check("an unscopable call still reaches the panel", len(seen) == before + 1, len(seen))
+check("and offers no rule", seen[-1].get("suggested_rule") is None,
+      seen[-1].get("suggested_rule"))
 
 # 11. Exactly one rule source: files of our own grant nothing.
 os.makedirs(os.path.join(HOME, ".claudenext"), exist_ok=True)

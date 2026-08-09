@@ -43,6 +43,8 @@ read from and written to the Claude Code permission lists you already have.
 
 ## Deciding a call
 
+0. The session's permission mode already settled it — `bypassPermissions`,
+   `plan`, or `acceptEdits` on a file edit → print nothing.
 1. Not in the ask-about list → print nothing, Claude Code prompts.
 2. A `permissions.deny` entry matches → denied, no UI.
 3. A `permissions.ask` entry matches → skip step 4, always show the panel.
@@ -98,6 +100,20 @@ out of via `src/../../../etc/passwd`.
 Both of these make ClaudeNext stricter than Claude Code's own matcher, which
 means a rule may permit slightly more when ClaudeNext isn't running.
 
+### When no rule is offered
+
+**Always allow** only appears when a rule can be scoped to the call. For `Bash`
+that means a command to take a prefix from, for a file tool a path, for
+`WebFetch` a host. Without one the only rule left would be the bare tool name —
+which allows *every* call to that tool — so the button is hidden instead. Tools
+with no natural sub-scope (`WebSearch`, an MCP tool) still offer themselves,
+because there the bare name is the intended granularity rather than a fallback.
+
+Claude Code does not tell a hook which buttons it would have shown; the payload
+carries `tool_name`, `tool_input`, `cwd`, `permission_mode` and identifiers, and
+nothing about the prompt. So the panel cannot mirror the host's options exactly —
+it decides for itself which ones are honest for the call in front of it.
+
 ### Scope, not permission
 
 The **Ask about in ‹project›** row on a card is which tools reach the panel at
@@ -135,6 +151,7 @@ icon; the rest is file-only.
 | `ignore` | `[]` | checked before `intercept` |
 | `ignoreEntrypoints` | `[]` | hosts to skip, vs `CLAUDE_CODE_ENTRYPOINT` |
 | `timeout` | `280` | seconds to wait, capped at 290 |
+| `respectPermissionMode` | `true` | skip what the session's mode would accept |
 
 Everything but `port` applies immediately: the app holds its own copy and the
 hook re-reads the file every call. Writes preserve keys you add by hand.

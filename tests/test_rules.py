@@ -150,6 +150,24 @@ check("the // absolute prefix is understood",
       matches("Read(//Users/shu/**)", "Read", {"file_path": HOME + "/.zshrc"}, CWD),
       HOME == "/Users/shu")
 
+# --- only offer a rule that can be scoped ------------------------------------
+# A bare tool name allows every call to that tool. Offering it as "always allow"
+# when we simply failed to read an argument turns a fallback into a grant.
+
+for tool, inp, why in [
+    ("Bash", {"command": ""}, "empty command"),
+    ("Bash", {"command": "$(cat x)"}, "command substitution"),
+    ("WebFetch", {"url": "not-a-url"}, "no host"),
+    ("Edit", {}, "no path"),
+    ("Write", {}, "no path"),
+]:
+    check(f"no rule offered for {why}", suggest(tool, inp, CWD), None)
+
+check("a tool with no natural sub-scope still offers itself",
+      suggest("WebSearch", {"query": "x"}, CWD), "WebSearch")
+check("an mcp tool offers itself",
+      suggest("mcp__github__create_pr", {}, CWD), "mcp__github__create_pr")
+
 if failures:
     print("\n".join("FAIL  " + f for f in failures))
     sys.exit(1)

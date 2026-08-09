@@ -24,6 +24,8 @@ struct AppConfig: Equatable {
     var ignoreEntrypoints: [String] = []
     /// Seconds the hook waits for an answer.
     var timeout: Double = 280
+    /// Skip the calls the session's permission mode would have accepted anyway.
+    var respectPermissionMode: Bool = true
     /// Optionally keep out of the menu bar until there is something to ask.
     var hideWhenIdle: Bool = false
 
@@ -61,6 +63,7 @@ struct AppConfig: Equatable {
         if let v = object["ignore"] as? [String] { config.ignore = v }
         if let v = object["ignoreEntrypoints"] as? [String] { config.ignoreEntrypoints = v }
         if let v = object["timeout"] as? NSNumber { config.timeout = v.doubleValue }
+        if let v = object["respectPermissionMode"] as? Bool { config.respectPermissionMode = v }
         if let v = object["hideWhenIdle"] as? Bool { config.hideWhenIdle = v }
         return config
     }
@@ -84,6 +87,7 @@ struct AppConfig: Equatable {
         object["ignore"] = ignore
         object["ignoreEntrypoints"] = ignoreEntrypoints
         object["timeout"] = timeout
+        object["respectPermissionMode"] = respectPermissionMode
         object["hideWhenIdle"] = hideWhenIdle
 
         guard let data = try? JSONSerialization.data(
