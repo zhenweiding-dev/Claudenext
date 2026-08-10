@@ -130,7 +130,9 @@ Absent means the project follows the global default.
 
 Two sessions can save a rule at once, and the app writes the scope file while
 the hook writes rules. Writes take an exclusive `flock` on
-`<project>/.claude/.claudenext.lock` and land via atomic rename. A file that
+`<project>/.claude/.claudenext.lock` and land via atomic rename. That lock file
+is left behind in any project you save a rule in — add `.claudenext.lock` to
+your `.gitignore`. A file that
 exists but won't parse is never overwritten — that guard exists because an
 earlier version replaced a settings file it couldn't read with just its own key,
 costing everything else in it.
