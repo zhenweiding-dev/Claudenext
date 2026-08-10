@@ -124,7 +124,12 @@ struct ActionButtonStyle: ButtonStyle {
         return configuration.label
             .font(.system(size: 12.5, weight: .medium))
             .foregroundStyle(fg)
-            .padding(.horizontal, variant == .quiet ? 8 : 12)
+            // Never wrap: the focused card adds three key caps to this row, and
+            // a button folding onto two lines looks broken next to one that did
+            // not have to.
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, variant == .quiet ? 7 : 10)
             .padding(.vertical, 6.5)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(bg))
             .overlay(

@@ -418,7 +418,7 @@ struct PromptCard: View {
                 )
                 .onSubmit { decide(.deny, remember: false) }
 
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Button {
                     decide(.deny, remember: model.optionDown && live)
                 } label: {
