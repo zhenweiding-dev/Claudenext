@@ -18,16 +18,17 @@ without hunting for the right window. Sharing it in case you have the same
 problem.
 
 <p align="center">
-  <img src="docs/screenshots/stacked.png" width="470" alt="Four requests stacked in the panel: a Bash command, a file edit with a folded diff, and two more behind them.">
+  <img src="docs/screenshots/stacked.png" width="460" alt="Two stacked requests. The focused one offers Deny, Skip, Always allow and Allow; the one below it, running a command built from a file's contents, offers only Deny, Skip and Allow.">
 </p>
 
-Every waiting session, in one place. The card names the repo it came from —
-`acme-platform › services/billing-api` — because in a monorepo three different
-directories are all called `src`.
+Every waiting session in one place — and each card only offers what makes sense
+for it. The second one runs `curl "$(cat …)" | sh`, whose real command doesn't
+exist yet, so there's nothing honest to remember and **Always allow** simply
+isn't there.
 
 <p align="center">
-  <img src="docs/screenshots/mcp.png" width="420" alt="A single MCP request showing the tool's arguments as a field table, with Deny, Skip, Always allow and Allow.">
-  <img src="docs/screenshots/idle-dark.png" width="420" alt="The idle panel in dark mode, listing recent decisions above the settings.">
+  <img src="docs/screenshots/tools.png" width="440" alt="A file being created, its contents folded to two lines with a Show all link, above a web fetch whose rule would be scoped to the domain.">
+  <img src="docs/screenshots/idle-dark.png" width="440" alt="The idle panel in dark mode, listing recent allow and deny decisions above the settings.">
 </p>
 
 
@@ -79,8 +80,9 @@ keyboard; the rest wait their turn but you can click any of them. Long diffs
 fold up so the buttons stay reachable. Click away and nothing is lost — the
 request just parks, and the menu bar keeps a count.
 
-Each card tells you which repo it came from and where inside it, so two sessions
-editing `src/index.ts` in different projects don't look identical.
+Each card tells you which repo it came from and where inside it —
+`acme-platform › services/billing-api` — because in a monorepo three different
+directories are all called `src`.
 
 By default it won't pop open or steal your keyboard — the count and a short
 pulse are the whole notification. If you'd rather it opened itself, there's a
@@ -90,7 +92,7 @@ Click the menu bar icon any time to see what you've answered recently and flip
 those switches:
 
 <p align="center">
-  <img src="docs/screenshots/idle-light.png" width="420" alt="The idle panel: recent decisions, then three toggles for sound, opening automatically, and hiding the icon.">
+  <img src="docs/screenshots/idle-light.png" width="440" alt="The idle panel: recent decisions, then three toggles for sound, opening automatically, and hiding the icon.">
 </p>
 
 ### When you press Always allow
